@@ -67,7 +67,9 @@ def markdown(result: dict) -> str:
         f"| 请求吞吐 | {_fmt(summary.get('requests_per_s'), 3)} req/s |",
         f"| token 吞吐 | {_fmt(summary.get('output_tokens_per_s'), 2)} tok/s |",
         f"| token 计数覆盖率 | {_fmt(summary.get('token_usage_coverage'), 3)} |",
-        f"| goodput | {_fmt(summary.get('goodput_per_s'), 3)} req/s |",
+        # goodput 只有在给了 SLO（--slo-ttft/--slo-tpot）时才有定义，否则不展示以免误导。
+        *([f"| goodput | {_fmt(summary.get('goodput_per_s'), 3)} req/s |"]
+          if summary.get("goodput_per_s") is not None else []),
         f"| 退化比（后1/4 ÷ 前1/4 延迟） | {_fmt(summary.get('degradation_ratio'), 3)} |",
         "",
         "## 延迟分布（单位：毫秒）",

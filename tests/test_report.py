@@ -41,6 +41,15 @@ def test_missing_prompt_sha_does_not_crash():
     assert "prompt sha256" in text
 
 
+def test_goodput_row_only_when_slo_provided():
+    # 没给 SLO 时 goodput 无定义（null），不应展示该行，否则读者会以为 0；
+    # 给了 SLO（goodput_per_s 为数值）才展示。
+    text = markdown(_report())
+    assert "goodput" not in text
+    summary = dict(_report()["summary"], goodput_per_s=1.25)
+    assert "| goodput | 1.250 req/s |" in markdown(_report(summary=summary))
+
+
 def test_non_object_summary_raises_value_error():
     with pytest.raises(ValueError):
         markdown({"config": {}, "summary": [1, 2, 3], "records": []})

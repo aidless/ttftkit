@@ -91,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--concurrency", type=int, default=1)
     run.add_argument("--max-tokens", type=int, default=32)
     run.add_argument("--warmup", type=int, default=0)
-    run.add_argument("--timeout", type=float, default=60.0, help="单请求超时（秒）")
+    run.add_argument("--timeout", type=float, default=60.0, help="单请求超时（秒，含整条 SSE 流的整体预算）")
     run.add_argument("--profile", default="unspecified", help="部署标识，如 rtx4090-vllm-0.6.3")
     run.add_argument("--slo-ttft", type=float, default=None, help="TTFT SLO(ms), 给出后算 goodput")
     run.add_argument("--slo-tpot", type=float, default=None, help="TPOT SLO(ms), 给出后算 goodput")
