@@ -98,7 +98,8 @@ async def _measure_once(
                 try:
                     event = json.loads(data)
                 except json.JSONDecodeError as exc:
-                    return _fail(index, t0, f"invalid json: {exc}")
+                    # 只报位置，不回显原始文本（可能含服务端控制字符/敏感串）
+                    return _fail(index, t0, f"invalid json at line {exc.lineno} column {exc.colno}")
 
                 try:
                     if not isinstance(event, dict):
@@ -145,9 +146,8 @@ async def _measure_once(
     except httpx.TimeoutException:
         return _fail(index, t0, "timeout")
     except httpx.HTTPError as exc:
-        detail = str(exc).strip()
-        suffix = f": {detail}" if detail else ""
-        return _fail(index, t0, f"http error: {type(exc).__name__}{suffix}")
+        # 协议层异常文本里可能夹带服务端字节（如非法的 chunk 头），只保留异常类名
+        return _fail(index, t0, f"http error: {type(exc).__name__}")
 
     latency_ms = (time.perf_counter() - t0) * 1000
     if content_chunks == 0:

@@ -134,6 +134,7 @@ def _error_counts(records: Sequence[RequestRecord]) -> dict:
     for r in records:
         if r.ok:
             continue
-        key = (r.error or "unknown").split(":")[0].strip()[:80]
+        # 错误串本身已是固定分类（不含服务端取值），保留完整分类以不丢异常类型
+        key = (r.error or "unknown").strip()[:80]
         counts[key] = counts.get(key, 0) + 1
     return counts

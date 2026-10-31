@@ -61,6 +61,10 @@ SCENARIOS: dict[str, list[tuple[float, bytes]] | None] = {
         (0.00, b'data: {"choices":[{"delta":{},"finish_reason":"INTERNAL_SECRET_987"}]}\n\n'),
         (0.00, b"data: [DONE]\n\n"),
     ],
+    # 非法 chunk 头：httpx 抛 RemoteProtocolError，其文本会夹带服务端字节
+    "bad-chunk": [
+        (0.01, b"ZZZ_SECRET_TOKEN\r\n"),
+    ],
     "http500": None,
 }
 
@@ -84,12 +88,17 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
+        raw = name == "bad-chunk"  # 该场景故意写非法分块，用于验证协议错误不回显字节
         try:
             for delay, chunk in script:
                 time.sleep(delay)
-                self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
+                if raw:
+                    self.wfile.write(chunk)
+                else:
+                    self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
                 self.wfile.flush()
-            self.wfile.write(b"0\r\n\r\n")
+            if not raw:
+                self.wfile.write(b"0\r\n\r\n")
         except (BrokenPipeError, ConnectionResetError):
             pass
 

@@ -116,6 +116,16 @@ CASES = [
         "tests/test_client_hardening.py::test_total_deadline_stops_slow_trickle "
         "tests/test_client_hardening.py::test_no_newline_trickle_hits_total_deadline",
     ),
+    (
+        "M7 协议错误文本不回显服务端字节",
+        [
+            ("src/ttftkit/client.py",
+             '        # 协议层异常文本里可能夹带服务端字节（如非法的 chunk 头），只保留异常类名\n'
+             '        return _fail(index, t0, f"http error: {type(exc).__name__}")\n',
+             '        return _fail(index, t0, f"http error: {type(exc).__name__}: {exc}")\n'),
+        ],
+        "tests/test_client_hardening.py::test_protocol_error_does_not_echo_server_bytes",
+    ),
 ]
 
 

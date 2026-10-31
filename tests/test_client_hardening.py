@@ -73,3 +73,21 @@ def test_no_newline_trickle_hits_total_deadline(sse_base):
     assert rec.ok is False
     assert "timeout" in (rec.error or "").lower()
     assert elapsed < 1.0, f"总预算未生效，实际耗时 {elapsed:.2f}s"
+
+
+def test_protocol_error_does_not_echo_server_bytes(sse_base):
+    # 修复前：异常文本 f"{exc}" 会把非法 chunk 头里的服务端字节写进 error，
+    # 再经 JSON / Markdown 报告外泄（日志注入 + 凭据回显）；修复后：只保留异常类名
+    import json
+
+    from ttftkit import report
+
+    result = asyncio.run(run_benchmark(
+        endpoint=sse_base + "/bad-chunk/v1/chat/completions",
+        model="tiny", prompt="hi", requests=1, max_tokens=8, timeout_s=5))
+    rec = result["records"][0]
+    assert rec["ok"] is False
+    assert "SECRET" not in (rec["error"] or "")
+    assert "http error" in (rec["error"] or "").lower()
+    blob = json.dumps(result, ensure_ascii=False) + report.markdown(result)
+    assert "SECRET" not in blob
