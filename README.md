@@ -47,7 +47,7 @@ ttftkit 刻意做小：**只测一个端点、只做闭环并发、只输出可�
 
 - `limits`：绝对上限/下限，越界即 FAIL。
 - `regressions`：相对基线允许的退化百分比（延迟类越小越好、吞吐类越大越好，方向内置）。
-- 退出码：`0` 通过（可能带 WARN 贴边提示）｜`1` 有规则不通过、有失败请求、或缺指标｜`2` 策略/报告无效，或两次测量不可比。
+- 退出码：`0` 通过（可能带 WARN 贴边提示）｜`1` 有规则不通过、失败数超过预算（默认 0）、或缺指标｜`2` 策略/报告无效，或两次测量不可比。
 
 **fail-closed 的地方**（这些都是踩过的坑，不是设计洁癖）：
 
@@ -56,6 +56,8 @@ ttftkit 刻意做小：**只测一个端点、只做闭环并发、只输出可�
 - 相对比较要求 `protocol / model / concurrency / max_tokens / requests / prompt_sha256 / profile` 完全一致，否则两次不是同一个实验。
 - 报告里 `requests` 为 0 或 `successful_requests > requests` → 无证据可判。
 - 分布指标的 `count` 少于成功请求数（例如一半请求缺 usage 导致 TPOT 只算了一半）→ 不通过。
+- **基线也要可判定**：baseline 缺 `successful_requests`、`requests=0`、或分布 `count` 不可用 → 配置错误（`2`），不能拿 1 个样本当基准。
+- 失败预算：默认任何失败都拦；若策略写了 `limits.error_rate`，则按该预算判定（预算内的小比例失败放行）。
 
 策略写法与取舍见 [`docs/gate.md`](docs/gate.md)。
 
@@ -70,7 +72,7 @@ ttftkit 刻意做小：**只测一个端点、只做闭环并发、只输出可�
   run: ttftkit gate results/run.json --policy configs/policy.json --baseline baselines/main.json
 ```
 
-`run` 自身在**有请求失败时返回 1**，所以即使不配 `gate` 也不会把坏结果当成功。
+`run` 自身在**有请求失败时返回 1**，所以即使不配 `gate` 也不会把坏结果当成功。`gate` 则按策略里的失败预算判（默认 0，即任何失败都不放行）。
 
 ## 一次真实运行（本机 CPU，仅演示链路）
 

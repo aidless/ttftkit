@@ -67,7 +67,9 @@ protocol / model / concurrency / max_tokens / requests / prompt_sha256 / profile
 | 任一请求失败 | FAIL | 默认不允许带病发布 |
 | 两份报告配置不一致 | 2 | 不是同一个实验 |
 
-「任一请求失败即阻断」在 v0.1 是硬规则，没有豁免开关。真要允许偶发失败，应当先有失败预算（如 `error_rate ≤ 0.5%`）并显式写进 `limits`，而不是让门禁默默放行。
+失败预算默认是 **0**：不写 `error_rate` 上限时，任一请求失败即阻断。要允许偶发失败，必须显式把预算写进 `limits`（如 `"error_rate": 0.005` 表示 ≤0.5%），门禁按该预算判：`error_rate > budget` 才 FAIL。预算不是「默默放行」——它会作为一条显式的 `implicit` 检查出现在输出里。
+
+基线同样是判据的一部分：`baseline` 缺 `successful_requests`、`requests=0`、或分布 `count` 不可用（例如只来自 1 个样本）时，相对比较直接判配置错误（退出码 `2`），不会拿薄样本当基准。
 
 ## 6. 灰度与回滚
 

@@ -42,6 +42,8 @@ SCENARIOS: dict[str, list[tuple[float, bytes]] | None] = {
     # 慢速滴流：每块间隔都小于 read timeout，只有「整请求总时限」能拦住
     "trickle": [(0.04, b'data: {"choices":[{"delta":{"content":"a"}}]}\n\n')] * 20
     + [(0.00, b"data: [DONE]\n\n")],
+    # 无换行慢速滴流：aiter_lines() 永不产出整行，只有外层总预算能拦住挂起
+    "trickle-nonl": [(0.05, b"x")] * 30,
     # 非字符串 content（多模态数组/数字）不是文本内容块
     "bad-content": [
         (0.01, b'data: {"choices":[{"delta":{"content":42}}]}\n\n'),

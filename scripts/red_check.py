@@ -31,16 +31,6 @@ CASES = [
         "tests/test_client_hardening.py::test_batch_is_not_aborted_by_malformed_choice",
     ),
     (
-        "M3 整请求总时限",
-        [
-            ("src/ttftkit/client.py",
-             '                if time.perf_counter() > deadline:\n'
-             '                    return _fail(index, t0, "timeout")\n',
-             ''),
-        ],
-        "tests/test_client_hardening.py::test_total_deadline_stops_slow_trickle",
-    ),
-    (
         "M4 错误串不回显服务端取值",
         [
             ("src/ttftkit/client.py",
@@ -82,6 +72,49 @@ CASES = [
              "raise ValueError(f'warmup failed: {rec.error}')"),
         ],
         "tests/test_cli.py::test_warmup_infra_failure_exits_1",
+    ),
+    (
+        "M1b 相对门禁校验 baseline 证据（缺 successful/0 请求/浮点）",
+        [
+            ("src/ttftkit/gate.py",
+             "    if baseline is not None:\n"
+             "        base = baseline.get(\"summary\") if isinstance(baseline, dict) else None\n"
+             "        if not isinstance(base, dict):\n"
+             "            return {\"exit_code\": 2, \"checks\": [], \"reasons\": [\"baseline report has no summary block\"]}\n"  # noqa: E501
+             "        try:\n"
+             "            _validate_summary(base)\n"
+             "        except _ConfigError as exc:\n"
+             "            return {\"exit_code\": 2, \"checks\": [], \"reasons\": [f\"baseline: {exc}\"]}\n",
+             ""),
+        ],
+        "tests/test_gate_failclosed.py::test_baseline_missing_successful_requests_is_configuration_error "
+        "tests/test_gate_failclosed.py::test_baseline_with_zero_requests_is_configuration_error "
+        "tests/test_gate_failclosed.py::test_baseline_non_integer_successful_requests_is_configuration_error",
+    ),
+    (
+        "M3 失败预算生效（不是硬编码有失败即挂）",
+        [
+            ("src/ttftkit/gate.py",
+             "    if error_rate > failure_budget + 1e-12:",
+             "    if failed > 0 or error_rate > 0:"),
+        ],
+        "tests/test_gate_failclosed.py::test_explicit_failure_budget_allows_rare_failure",
+    ),
+    (
+        "M2b 无换行慢滴流由总预算拦住",
+        [
+            ("src/ttftkit/client.py",
+             "    try:\n"
+             "        return await asyncio.wait_for(\n"
+             "            _measure_once(client, payload, index=index, t0=t0, timeout_s=timeout_s, path=path),\n"  # noqa: E501
+             "            timeout=timeout_s,\n"
+             "        )\n"
+             "    except asyncio.TimeoutError:\n"
+             "        return _fail(index, t0, \"timeout\")\n",
+             "    return await _measure_once(client, payload, index=index, t0=t0, timeout_s=timeout_s, path=path)\n"),  # noqa: E501
+        ],
+        "tests/test_client_hardening.py::test_total_deadline_stops_slow_trickle "
+        "tests/test_client_hardening.py::test_no_newline_trickle_hits_total_deadline",
     ),
 ]
 

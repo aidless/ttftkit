@@ -84,3 +84,63 @@ def test_error_rate_out_of_range_or_wrong_type_is_configuration_error(bad):
     r = realistic()
     r["summary"]["error_rate"] = bad
     assert evaluate(r, POLICY)["exit_code"] == 2
+
+
+# --- 第二轮独立审阅发现的 baseline 侧绕过 ---
+def test_baseline_missing_successful_requests_is_configuration_error():
+    baseline = realistic()
+    del baseline["summary"]["successful_requests"]
+    baseline["summary"]["ttft_ms"]["count"] = 1
+    candidate = realistic()
+    candidate["summary"]["ttft_ms"]["p95"] = 110.0
+    result = evaluate(candidate, {"regressions": {"ttft_ms.p95": 20}}, baseline)
+    assert result["exit_code"] == 2
+
+
+def test_baseline_with_zero_requests_is_configuration_error():
+    baseline = realistic()
+    baseline["summary"].update({"requests": 0, "successful_requests": 0, "error_rate": 0.0,
+                                "ttft_ms": None, "tpot_ms": None, "latency_ms": None,
+                                "decode_ms": None, "chunk_gap_ms": None})
+    candidate = realistic()
+    result = evaluate(candidate, {"regressions": {"ttft_ms.p95": 20}}, baseline)
+    assert result["exit_code"] == 2
+
+
+def test_baseline_non_integer_successful_requests_is_configuration_error():
+    baseline = realistic()
+    baseline["summary"]["successful_requests"] = 8.0
+    candidate = realistic()
+    result = evaluate(candidate, {"regressions": {"ttft_ms.p95": 20}}, baseline)
+    assert result["exit_code"] == 2
+
+
+# --- 失败预算：显式 limits.error_rate 应当生效，而不是被硬编码的「有失败即挂」覆盖 ---
+def _report_with_failures(total, failed):
+    r = realistic()
+    r["summary"].update({
+        "requests": total,
+        "successful_requests": total - failed,
+        "error_rate": failed / total,
+    })
+    return r
+
+
+def test_explicit_failure_budget_allows_rare_failure():
+    # 1000 请求里 1 个失败（0.1%），预算 0.5% → 放行
+    r = _report_with_failures(1000, 1)
+    result = evaluate(r, {"limits": {"error_rate": 0.005}})
+    assert result["exit_code"] == 0
+    assert not any(c["metric"] == "error_rate" and c["status"] == "FAIL" for c in result["checks"])
+
+
+def test_failure_exceeding_budget_fails():
+    r = _report_with_failures(1000, 1)
+    result = evaluate(r, {"limits": {"error_rate": 0.0005}})
+    assert result["exit_code"] == 1
+
+
+def test_no_budget_means_any_failure_blocks():
+    r = _report_with_failures(1000, 1)
+    result = evaluate(r, {"limits": {"ttft_ms.p95": 500}})
+    assert result["exit_code"] == 1

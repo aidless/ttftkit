@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ttftkit"
 version = "0.1.0"
-description = "LLM serving benchmark harness and release gate: TTFT / TPOT / throughput / VRAM / stability, CI-ready"
+description = "LLM serving benchmark harness and release gate: TTFT / TPOT / throughput / stability, CI-ready"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }

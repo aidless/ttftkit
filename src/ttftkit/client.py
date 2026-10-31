@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 
@@ -46,11 +47,30 @@ async def measure_request(
     """发一次流式请求并记录计时。
 
     失败一律返回 ok=False + error 字符串，不抛异常（编排层不该被单点失败打断）。
+
+    整请求总时限用 `asyncio.wait_for` 兜底：httpx 的 timeout 是「单次读超时」，
+    每收到一块就重置，服务端若慢速滴流且**永不发换行**，`aiter_lines()` 不会产出任何行，
+    循环里的 deadline 检查永远执行不到——只有外层的总预算能拦住这种挂起。
     """
     t0 = time.perf_counter()
-    # 整请求总时限：httpx 的 timeout 是「单次读超时」，每收到一块就重置，
-    # 慢速滴流可以永远不过期。这里用绝对 deadline 兜住整个流的读取。
-    deadline = t0 + timeout_s
+    try:
+        return await asyncio.wait_for(
+            _measure_once(client, payload, index=index, t0=t0, timeout_s=timeout_s, path=path),
+            timeout=timeout_s,
+        )
+    except asyncio.TimeoutError:
+        return _fail(index, t0, "timeout")
+
+
+async def _measure_once(
+    client: httpx.AsyncClient,
+    payload: dict,
+    *,
+    index: int,
+    t0: float,
+    timeout_s: float,
+    path: str,
+) -> RequestRecord:
     first_t: float | None = None
     last_t: float | None = None
     content_chunks = 0
@@ -69,8 +89,6 @@ async def measure_request(
                 return _fail(index, t0, f"HTTP {response.status_code}")
 
             async for line in response.aiter_lines():
-                if time.perf_counter() > deadline:
-                    return _fail(index, t0, "timeout")
                 if not line.startswith("data:"):
                     continue  # 空行、注释行（`: keep-alive`）跳过
                 data = line[5:].strip()
@@ -127,7 +145,9 @@ async def measure_request(
     except httpx.TimeoutException:
         return _fail(index, t0, "timeout")
     except httpx.HTTPError as exc:
-        return _fail(index, t0, f"http error: {type(exc).__name__}: {exc}")
+        detail = str(exc).strip()
+        suffix = f": {detail}" if detail else ""
+        return _fail(index, t0, f"http error: {type(exc).__name__}{suffix}")
 
     latency_ms = (time.perf_counter() - t0) * 1000
     if content_chunks == 0:

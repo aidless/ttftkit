@@ -156,8 +156,11 @@ def _insufficient_samples(summary: dict, path: str) -> str | None:
         return None
     dist = summary.get(parts[0])
     successful = summary.get("successful_requests")
-    if not isinstance(dist, dict) or isinstance(successful, bool) or not isinstance(successful, int):
+    if not isinstance(dist, dict):
         return None
+    if isinstance(successful, bool) or not isinstance(successful, int):
+        # 靠 successful_requests 判「覆盖度」，它不可用就不能当作「样本充足」
+        return "'successful_requests' is not an integer, cannot verify sample coverage"
     count = dist.get("count")
     if isinstance(count, bool) or not isinstance(count, int):
         return f"'{parts[0]}.count' is not an integer ({count!r})"
@@ -193,16 +196,30 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
     except _ConfigError as exc:
         return {"exit_code": 2, "checks": [], "reasons": [str(exc)]}
 
+    # baseline 也是判据的一部分：基线缺证据（薄样本、0 请求、非法分布 count）
+    # 时相对比较就没有意义，必须 fail-closed，而不是拿 1 个样本当基准。
+    if baseline is not None:
+        base = baseline.get("summary") if isinstance(baseline, dict) else None
+        if not isinstance(base, dict):
+            return {"exit_code": 2, "checks": [], "reasons": ["baseline report has no summary block"]}
+        try:
+            _validate_summary(base)
+        except _ConfigError as exc:
+            return {"exit_code": 2, "checks": [], "reasons": [f"baseline: {exc}"]}
+
     failed = summary["requests"] - summary["successful_requests"]
     error_rate = summary["error_rate"]
-    if failed > 0 or error_rate > 0:
+    # 失败预算：默认 0（任何失败都拦）。若策略显式给了 error_rate 上限，
+    # 就按该预算判，避免「文档说可配置、代码却硬编码必挂」的自相矛盾。
+    failure_budget = float(policy["limits"].get("error_rate", 0.0))
+    if error_rate > failure_budget + 1e-12:
         checks.append({
             "metric": "error_rate", "kind": "implicit", "status": "FAIL",
-            "observed": error_rate, "threshold": 0.0,
-            "reason": f"{failed} failed request(s), error_rate {error_rate:g}; "
-                      f"failures block release by default",
+            "observed": error_rate, "threshold": failure_budget,
+            "reason": f"{failed} failed request(s), error_rate {error_rate:g} "
+                      f"exceeds budget {failure_budget:g}",
         })
-        reasons.append(f"{failed} failed request(s) / error_rate {error_rate:g}")
+        reasons.append(f"{failed} failed request(s) / error_rate {error_rate:g} > {failure_budget:g}")
 
     for name, limit in policy["limits"].items():
         observed = _lookup(summary, name)

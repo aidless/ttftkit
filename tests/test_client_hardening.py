@@ -60,3 +60,16 @@ def test_non_string_content_is_failure(sse_base):
     rec = run(sse_base, "bad-content")
     assert rec.ok is False
     assert "content" in (rec.error or "").lower()
+
+
+def test_no_newline_trickle_hits_total_deadline(sse_base):
+    # 服务端每 50ms 写 1 字节且永不发换行：httpx 的 read 超时每块重置，
+    # aiter_lines() 不产出任何行 → 只有 asyncio.wait_for 总预算能拦住（否则 30×50ms 才结束，甚至永不结束）
+    import time as _t
+
+    start = _t.perf_counter()
+    rec = run(sse_base, "trickle-nonl", timeout_s=0.25)
+    elapsed = _t.perf_counter() - start
+    assert rec.ok is False
+    assert "timeout" in (rec.error or "").lower()
+    assert elapsed < 1.0, f"总预算未生效，实际耗时 {elapsed:.2f}s"
