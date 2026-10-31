@@ -1,0 +1,7 @@
+{
+  "limits": {
+    "ttft_ms.p95": 1000,
+    "tpot_ms.p95": 100,
+    "error_rate": 0
+  }
+}

@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+results/*
+!results/smoke-ollama.json
+!results/smoke-ollama.md
+!results/README.md
+.env
+.env.*
+!.env.example
+*.nsys-rep
+*.sqlite

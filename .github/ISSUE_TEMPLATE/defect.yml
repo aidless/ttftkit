@@ -1,0 +1,38 @@
+name: Performance or correctness defect
+description: Report a reproducible failure with environment and evidence
+title: '[defect] '
+body:
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Engine version, model revision, hardware, driver, container digest, ttftkit commit
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction command and expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Actual behavior and sanitized evidence
+      description: Attach raw report, gate verdict and profiler window if available. Remove credentials and private prompts.
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Proposed severity
+      options:
+        - S0 - Service unavailable or incorrect output
+        - S1 - Release criterion violated
+        - S2 - Limited impact regression
+        - S3 - Documentation or observability gap
+  - type: textarea
+    id: cause
+    attributes:
+      label: Root cause evidence and regression coverage
+      description: Distinguish observations, hypotheses and verified causes.
