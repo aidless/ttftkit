@@ -141,8 +141,10 @@ def _validate_summary(summary: dict) -> None:
         if not isinstance(node, dict):
             raise _ConfigError(f"'{metric}' must be an object or null, got {type(node).__name__}")
         count = node.get("count")
-        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-            raise _ConfigError(f"'{metric}.count' must be a non-negative integer, got {count!r}")
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            # count=0 却带分位数是自相矛盾（真实 summarize 无样本时整节点为 null），
+            # 会经 _lookup 取到数值骗过相对门禁，故一律视为无证据。
+            raise _ConfigError(f"'{metric}.count' must be a positive integer, got {count!r}")
         if metric in PER_REQUEST_DISTS and count > successful:
             raise _ConfigError(
                 f"'{metric}.count' ({count}) exceeds successful_requests ({successful})"

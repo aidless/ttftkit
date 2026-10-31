@@ -126,6 +126,15 @@ CASES = [
         ],
         "tests/test_client_hardening.py::test_protocol_error_does_not_echo_server_bytes",
     ),
+    (
+        "M8 count=0 却带分位数的基线视为无证据",
+        [
+            ("src/ttftkit/gate.py",
+             'if isinstance(count, bool) or not isinstance(count, int) or count < 1:',
+             'if isinstance(count, bool) or not isinstance(count, int) or count < 0:'),
+        ],
+        "tests/test_gate_failclosed.py::test_baseline_zero_count_with_quantile_is_configuration_error",
+    ),
 ]
 
 

@@ -49,7 +49,7 @@ def test_distribution_without_count_cannot_pass():
     assert evaluate(r, POLICY)["exit_code"] != 0
 
 
-@pytest.mark.parametrize("bad", [True, "8", float("nan"), float("inf"), -1, 8.0])
+@pytest.mark.parametrize("bad", [True, "8", float("nan"), float("inf"), -1, 0, 8.0])
 def test_distribution_with_invalid_count_cannot_pass(bad):
     r = realistic()
     r["summary"]["ttft_ms"]["count"] = bad
@@ -110,6 +110,20 @@ def test_baseline_with_zero_requests_is_configuration_error():
 def test_baseline_non_integer_successful_requests_is_configuration_error():
     baseline = realistic()
     baseline["summary"]["successful_requests"] = 8.0
+    candidate = realistic()
+    result = evaluate(candidate, {"regressions": {"ttft_ms.p95": 20}}, baseline)
+    assert result["exit_code"] == 2
+
+
+def test_baseline_zero_count_with_quantile_is_configuration_error():
+    # 独立复核发现的残余绕过：count=0 却带 p95=100 的手写 baseline，
+    # 经 _lookup 取到数值后相对规则可返回 exit 0 —— 自相矛盾即无证据，必须判 2
+    baseline = realistic()
+    baseline["summary"].update({
+        "requests": 8, "successful_requests": 0, "error_rate": 1.0,
+        "tpot_ms": None, "latency_ms": None, "decode_ms": None, "chunk_gap_ms": None,
+    })
+    baseline["summary"]["ttft_ms"] = {"count": 0, "p95": 100.0}
     candidate = realistic()
     result = evaluate(candidate, {"regressions": {"ttft_ms.p95": 20}}, baseline)
     assert result["exit_code"] == 2
