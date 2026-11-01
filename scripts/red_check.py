@@ -3,6 +3,7 @@
 在临时副本上操作，绝不改动真实仓库。每条：把某处修复回退 → 跑对应测试 → 必须失败。
 如果回退后测试仍通过，说明这条测试测的是装饰而不是机制。
 """
+import os
 import shutil
 import subprocess
 import sys
@@ -364,9 +365,10 @@ CASES = [
     (
         "M25 版本号只有一个真相源（pyproject == __init__）",
         [
+            # 锚点不带具体版本号：每次发版都改锚点，迟早会漂成 SETUP-FAIL
             ("src/ttftkit/__init__.py",
-             '__version__ = "0.2.0"',
-             '__version__ = "0.0.0"'),
+             '__version__ = "',
+             '__version__ = "0.0.0-'),
         ],
         "tests/test_package.py::test_version_matches_pyproject",
     ),
@@ -451,6 +453,25 @@ CASES = [
 ]
 
 
+# CI 里 ttftkit 是 `pip install -e .` 装的，editable finder 挂在 sys.meta_path 上，
+# 优先级高于 PYTHONPATH：不摘掉它，临时副本里被改坏的代码根本不会被 import，
+# 每条变异都会「测试通过」→ 变异检查变成装饰（本地 uv/temp 目录跑不出来，只有 CI 暴露）。
+_BOOTSTRAP = """
+import pathlib, sys
+
+sys.meta_path = [f for f in sys.meta_path if "editable" not in type(f).__module__.lower()]
+import ttftkit  # noqa: E402
+
+here = pathlib.Path.cwd().resolve()
+if not pathlib.Path(ttftkit.__file__).resolve().is_relative_to(here):
+    sys.exit(f"SETUP-FAIL: imported {ttftkit.__file__}, not the copy under {here}")
+
+import pytest  # noqa: E402
+
+sys.exit(pytest.main(sys.argv[1:]))
+"""
+
+
 def run_case(name, mutations, selector):
     tmp = Path(tempfile.mkdtemp(prefix="ttftkit-red-"))
     try:
@@ -466,9 +487,9 @@ def run_case(name, mutations, selector):
                 return name, "SETUP-FAIL", f"锚点未找到于 {rel}"
             p.write_text(text.replace(old, new, 1), encoding="utf-8")
         proc = subprocess.run(
-            [sys.executable, "-m", "pytest", "-q", *selector.split()],
+            [sys.executable, "-c", _BOOTSTRAP, "-q", *selector.split()],
             cwd=dst, capture_output=True, text=True,
-            env={**__import__("os").environ, "PYTHONPATH": "src"},
+            env={**os.environ, "PYTHONPATH": "src"},
         )
         status = "RED(预期)" if proc.returncode != 0 else "GREEN(失败:测试没抓到)"
         tail = (proc.stdout or proc.stderr).strip().splitlines()[-1:]
