@@ -124,13 +124,35 @@ Ryzen 5800H / 无 GPU / ollama `qwen2.5-coder:0.5b`，3 请求、并发 1、`max
 
 这是**链路可用性演示**，不是任何模型的性能结论：样本 3 个、CPU 推理、无 GPU 参与。
 
-## 局限
+> **复算**：上表每个数字都来自 `results/smoke-ollama.json`（schema 里 `summary` 段），
+> 用 `python3 -c "import json;d=json.load(open('results/smoke-ollama.json'));print(d['summary']['ttft_ms']['p50'], d['summary']['tpot_ms']['mean'], d['summary']['output_tokens_per_s'])"`
+> 即可逐项重取（预期 84.61 / 40.72 / 23.25）。触发该次运行的命令见同目录 `results/README.md`。
+> 注意：这是 CPU + 3 样本的一次演示，**不构成任何模型性能结论**。
+
+## 证明什么 / 不证明什么
+
+**证明（全部有源码 + 测试 + 可复算证据支撑）**
+
+- 这套测量与门禁链路**是闭环、可运行、可判定的**：`run` → 报告 → `gate` → 退出码 `0/1/2`，
+  在真实本地 SSE 服务上跑通（`tests/` 含真实本地 SSE 服务用例）。
+- 门禁**fail-closed**：指标缺失/`NaN`/`inf`/字符串/布尔 → 不通过；空策略/未知指标名 → 配置错误(`2`)；
+  相对比较要求协议/模型/并发/token/请求数/prompt 哈希/指纹完全一致，否则不可比。
+- 已知退化**会被拦住**：`scripts/red_check.py` 逐条回退 32 处修复，对应用例全部变红（32/32），
+  证明这些判定不是摆设。
+- 硬件块**自洽且可溯源**：`delta == peak − baseline`、负数/超设备总量 → 配置错误、
+  `config.hardware` 必须等于用块重算的指纹（防改块绕过可比性门禁）。
+- 基线与阈值**来自同机 5 次实测**，不是拍的：`baselines/README.md` 给出 5 次全表 + 复现命令，
+  `tests/test_baseline_policy.py` 验证 5 次真实跨跑全 PASS、人为退化全 FAIL（双向，非装饰）。
+
+**不证明（这些是边界，不要过度解读）**
 
 - **真 GPU 读数尚未实测**：本机没有 NVIDIA 用户态库/设备，采样链路只用假采样器（`scripts/fake_gpu.py` 注入已知泄漏）验证过三层。真卡（nvidia-smi / rocm-smi）读数需要在云 GPU 上跑通再写进本 README，不发布未实测数字。
+- 不构成**任何模型的性能结论**：README 里的演示样本（CPU、3 请求、ollama 0.5b）只证明链路可用，不证明模型快慢。
+- 不做**模型横向比较**：单机、单模型、固定配置，换了配置/机器就不是同一个实验（可比性门禁会判 `2`）。
 - 显存是**设备级 + 轮询**：同卡其他进程的变化会混进 `delta`，间隔内的单次尖峰可能被漏掉（见 [`docs/hardware.md`](docs/hardware.md)）。
-- 闭环固定并发，不模拟泊松到达或真实流量分布；要那个用 `aiperf`。
-- TPOT 是客户端近似：同一 SSE 块内的 token 时间无法拆分。
-- 不做分布式多机压测，不测第三方付费 API 的绝对性能（网络抖动会污染结果）。
+- 闭环固定并发，**不模拟泊松到达或真实流量分布**；要那个用 `aiperf`。
+- TPOT 是**客户端近似**：同一 SSE 块内的 token 时间无法拆分。
+- **不做分布式多机压测**，不测第三方付费 API 的绝对性能（网络抖动会污染结果）。
 
 ## 开发
 
@@ -140,7 +162,7 @@ python3 -m ruff check src tests scripts
 python3 scripts/red_check.py  # RED 反证：把修复回退后，对应测试必须变红
 ```
 
-`red_check.py` 是变异检查的自动化版本：在临时副本上逐条回退修复（TTFT 取值时机、门禁边界、吞吐分母、token 口径、坏 `choices`、总时限、错误串回显、非字符串 `content`、残缺报告、warmup 退出码、`count=0` 带分位数、显存 `null`→`0`、硬件可比性、影子门禁退出码、label 恒 PASS、利用率方向、stop 截断、单样本 delta、零样本块、指纹 `none`、证据链不一致、影子读坏输入），跑对应用例并断言它**失败**。当前 28/28 全部变红——修复若只是摆设，这一步会变绿并报错。
+`red_check.py` 是变异检查的自动化版本：在临时副本上逐条回退修复（TTFT 取值时机、门禁边界、吞吐分母、token 口径、坏 `choices`、总时限、错误串回显、非字符串 `content`、残缺报告、warmup 退出码、`count=0` 带分位数、显存 `null`→`0`、硬件可比性、影子门禁退出码、label 恒 PASS、利用率方向、stop 截断、单样本 delta、零样本块、指纹 `none`、证据链不一致、影子读坏输入、指纹溯源、截断读数、物理不可能值、Collector 参数），跑对应用例并断言它**失败**。当前 32/32 全部变红——修复若只是摆设，这一步会变绿并报错。
 
 按 JD 练习的路径见 [`docs/labs.md`](docs/labs.md)（8 个实验，每个都有可复跑的通过判据）。
 
