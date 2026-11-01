@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import math
 
+from .hardware import fingerprint as _block_fingerprint
+
 # 已知指标路径：规则里写别的路径视为配置错误（防止拼错后静默不检查）
 DIST_FIELDS = ("count", "mean", "min", "max", "p50", "p90", "p95", "p99", "stdev", "cv")
 DIST_METRICS = ("ttft_ms", "tpot_ms", "latency_ms", "decode_ms", "chunk_gap_ms")
@@ -222,6 +224,43 @@ def _check_hardware_evidence(report: dict, label: str) -> None:
                 f"{label} hardware.mem_used_delta_mb ({delta!r}) != peak - baseline "
                 f"({float(peak) - float(baseline):.3f})"
             )
+    # 物理合理性：显存占用不可能是负数，也不该超过设备的显存总量。
+    # 少了这两条，「-5 MB 峰值」或「9999 MB 峰值 / 6144 MB 设备」这种数字能被当成完整证据。
+    for key in ("mem_used_baseline_mb", "mem_used_peak_mb"):
+        value = block.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise _ConfigError(f"{label} hardware.{key} must be a finite number or null, got {value!r}")
+        if float(value) < 0:
+            raise _ConfigError(f"{label} hardware.{key} is negative ({value!r}): not a possible reading")
+    total = block.get("mem_total_mb")
+    if peak is not None and isinstance(total, (int, float)) and not isinstance(total, bool):
+        if float(peak) > float(total) + 1e-6:
+            raise _ConfigError(
+                f"{label} hardware.mem_used_peak_mb ({peak!r}) exceeds device total ({total!r})"
+            )
+    # 指纹溯源：config.hardware 必须等于「用块自己重算出来的指纹」。
+    # 否则改一份报告的块（换卡/换容量）就能绕过可比性门禁 —— 只信自称等于「写对就拦、写错不拦」。
+    declared = (report.get("config") or {}).get("hardware")
+    recomputed = _block_fingerprint(block)
+    declared_missing = declared is None or (
+        isinstance(declared, str) and declared.strip() in MISSING_FINGERPRINTS
+    )
+    if recomputed is None:
+        if not declared_missing:
+            raise _ConfigError(
+                f"{label} config.hardware claims {declared!r} but the hardware block has no usable device"
+            )
+    elif declared_missing:
+        raise _ConfigError(
+            f"{label} config.hardware is missing but the hardware block identifies {recomputed!r}"
+        )
+    elif declared != recomputed:
+        raise _ConfigError(
+            f"{label} config.hardware ({declared!r}) disagrees with the hardware block "
+            f"({recomputed!r}): the fingerprint was not derived from this block"
+        )
 
 
 def _hardware_fingerprint(report: dict, label: str) -> str:
@@ -255,6 +294,23 @@ def _insufficient_samples(summary: dict, path: str) -> str | None:
         return f"'{parts[0]}.count' is not an integer ({count!r})"
     if count < successful:
         return f"computed from {count} of {successful} successful requests"
+    return None
+
+
+def _hardware_unusable(candidate: dict, path: str) -> str | None:
+    """硬件规则 + 截断采样 = 没证据。
+
+    `stop()` 卡在采样器里意味着窗口末尾的数没采到，峰值可能被低报；
+    拿一个「可能漏掉峰值」的读数去对照上限，等于把噪声当合规。
+    只有本侧（被审的那份报告）如此才判，基线侧截断只会让候选显得更差（保守）。
+    """
+    if path not in HARDWARE_METRICS:
+        return None
+    block = candidate.get("hardware")
+    if not isinstance(block, dict):
+        return None
+    if block.get("truncated") is True:
+        return "sampling was truncated at stop (peak may be under-reported)"
     return None
 
 
@@ -339,6 +395,12 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
                            "observed": observed, "threshold": limit, "reason": short})
             reasons.append(f"{name}: {short}")
             continue
+        truncated = _hardware_unusable(candidate, name)
+        if truncated:
+            checks.append({"metric": name, "kind": "limit", "status": "FAIL",
+                           "observed": observed, "threshold": limit, "reason": truncated})
+            reasons.append(f"{name}: {truncated}")
+            continue
         higher = name in HIGHER_IS_BETTER
         if higher:
             ok = observed >= limit
@@ -369,6 +431,13 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
                            "observed": observed, "baseline": reference,
                            "threshold": tolerance_pct, "reason": short})
             reasons.append(f"{name}: {short}")
+            continue
+        truncated = _hardware_unusable(candidate, name)
+        if truncated:
+            checks.append({"metric": name, "kind": "regression", "status": "FAIL",
+                           "observed": observed, "baseline": reference,
+                           "threshold": tolerance_pct, "reason": truncated})
+            reasons.append(f"{name}: {truncated}")
             continue
         short_base = _insufficient_samples(base_summary, name)
         if short_base:

@@ -206,3 +206,14 @@ def test_command_sampler_uses_given_command():
     assert sample.name == "Fake"
     assert sample.mem_used_mb == 20.0
     assert s.source == "command"
+
+
+def test_collector_without_sampler_is_a_programming_error():
+    with pytest.raises(ValueError, match="needs a sampler"):
+        hardware.Collector(None)
+
+
+@pytest.mark.parametrize("bad", [0, 1, -3, 2.0, True])
+def test_max_series_must_be_usable_for_downsampling(bad):
+    with pytest.raises(ValueError, match="max_series"):
+        hardware.Collector(FakeSampler([800.0]), max_series=bad)

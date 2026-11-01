@@ -141,6 +141,13 @@ class Collector:
                  stop_timeout_s: float | None = None):
         if interval_s <= 0:
             raise ValueError("sample interval must be positive")
+        if sampler is None:
+            # 没有采样器就没有窗口起点，block() 也无从写 source：这种 Collector 是误用，
+            # 建的时候就说清楚（「不采样」的正确写法是根本不建 Collector）
+            raise ValueError("Collector needs a sampler; pass sampler=None by not creating one")
+        if isinstance(max_series, bool) or not isinstance(max_series, int) or max_series < 2:
+            # 降采样公式用 max_series-1 做步长：0 → IndexError，1 → ZeroDivisionError
+            raise ValueError("max_series must be an integer >= 2")
         self.sampler = sampler
         self.interval_s = interval_s
         self.max_series = max_series
