@@ -104,7 +104,7 @@ PYTHONPATH=src python3 scripts/shadow_gate.py --report baselines/run1.json \
 
 ```bash
 cat .github/workflows/ci.yml
-PYTHONPATH=src python3 scripts/red_check.py    # 23/23 条必须 RED
+PYTHONPATH=src python3 scripts/red_check.py    # 26/26 条必须 RED
 python3 -m ruff check src tests scripts
 python3 -m pytest -q
 ```
@@ -141,7 +141,9 @@ python3 -m pytest -q
 
 ```bash
 # 假采样器：每次被调用多占 64 MB，模拟泄漏
-PYTHONPATH=src python3 scripts/fake_gpu.py --leak-mb 64; PYTHONPATH=src python3 scripts/fake_gpu.py --leak-mb 64
+# --session 换了才从 baseline 重新开始，否则会接着上一轮的占用量涨
+PYTHONPATH=src python3 scripts/fake_gpu.py --leak-mb 64 --session lab7
+PYTHONPATH=src python3 scripts/fake_gpu.py --leak-mb 64 --session lab7
 PYTHONPATH=src python3 -m pytest -q tests/test_hardware.py tests/test_runner_hardware.py tests/test_cli_hardware.py
 ```
 
@@ -158,15 +160,20 @@ PYTHONPATH=src python3 -m pytest -q tests/test_hardware.py tests/test_runner_har
 | JD 映射 | 职责 4 |
 | 本机可行 | ✅ |
 
-仓库里有一份真实的缺陷分级模板 `docs/defect-triage.md`。练习：用 `git log` 找一个已修的 fail-open
-（例如「分布 `count=0` 却带分位数被当成有证据」），按模板填一条 RCA：现象 → 复现命令 →
-根因（哪一行判据不严）→ 影响面 → 修复 → 回归测试名。
+仓库里有一份真实的缺陷分级模板 `docs/defect-triage.md`。练习：用 `git log` 找一个已修的 fail-open，
+按模板填一条 RCA：现象 → 复现命令 → 根因（哪一行判据不严）→ 影响面 → 修复 → 回归测试名。
+两个现成样本，一个比一个刁：
 
 ```bash
 git log --oneline | head -20
-git show 87b0475   # count=0 那次的修复与测试
+git show 87b0475   # 样本 A：分布 count=0 却带分位数，被当成「有证据」
+git show b7b9ad6   # 样本 B：单样本时 delta=0.0 冒充 measured + 采样器全灭静默 + 指纹 "none" 绕门
 PYTHONPATH=src python3 -m pytest -q tests/test_gate_failclosed.py -v
 ```
+
+样本 B 的教训值得单独记住：三条缺陷同源——**「没有数据」被写成「数据是 0」**。
+修法不是补一个 if，而是让 `null` 一路传到底（块 → summary → 门禁 → 报告），
+再给每一环配一条「回退后必须变红」的变异反证（`scripts/red_check.py` M16–M20）。
 
 **通过判据**：RCA 里每个数字与每句根因都能被命令复现（`git show` + 测试名），并且写清
 「同类缺陷还可能出现在哪」——例如 `null` vs `0`、`count` 与实际样本数不一致、报告缺字段被默认补成合法值。

@@ -322,6 +322,45 @@ CASES = [
         ],
         "tests/test_shadow_gate.py::test_missing_or_broken_inputs_are_not_reported_as_rule_failure",
     ),
+    (
+        "M22 块内三数必须自洽（delta == peak - baseline）",
+        [
+            ("src/ttftkit/gate.py",
+             """        if abs(float(delta) - (float(peak) - float(baseline))) > 1e-3:
+            raise _ConfigError(
+                f"{label} hardware.mem_used_delta_mb ({delta!r}) != peak - baseline "
+                f"({float(peak) - float(baseline):.3f})"
+            )
+""",
+             ""),
+        ],
+        "tests/test_gate_hardware.py::test_internally_inconsistent_hardware_block_is_configuration_error",
+    ),
+    (
+        "M23 delta 需要至少两个样本",
+        [
+            ("src/ttftkit/gate.py",
+             """    if samples < 2 and delta is not None:
+        raise _ConfigError(
+            f"{label} hardware.samples={samples} cannot have a mem_used_delta_mb "
+            "(needs a baseline and a second sample)"
+        )
+""",
+             ""),
+        ],
+        "tests/test_gate_hardware.py::test_delta_requires_at_least_two_samples",
+    ),
+    (
+        "M24 零样本块不能携带读数",
+        [
+            ("src/ttftkit/gate.py",
+             """    if samples == 0 and any(value is not None for value in (baseline, peak, delta)):
+        raise _ConfigError(f"{label} hardware block has 0 samples but carries readings")
+""",
+             ""),
+        ],
+        "tests/test_gate_hardware.py::test_samples_zero_cannot_carry_any_reading",
+    ),
 ]
 
 

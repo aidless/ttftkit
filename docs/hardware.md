@@ -58,7 +58,7 @@ ttftkit run ... --sample-interval 0.1
 
 ```bash
 PYTHONPATH=src python3 -m pytest -q tests/test_hardware.py tests/test_runner_hardware.py tests/test_cli_hardware.py
-PYTHONPATH=src python3 scripts/red_check.py     # M9–M21 必须 RED
+PYTHONPATH=src python3 scripts/red_check.py     # M9–M24 必须 RED
 ```
 
 | 层 | 做法 | 断言 |
@@ -67,7 +67,8 @@ PYTHONPATH=src python3 scripts/red_check.py     # M9–M21 必须 RED
 | 端到端 | 真子进程 `scripts/fake_gpu.py --leak-mb 64`（每次被调用多占 64 MB） | `samples ≥ 2` 且序列严格递增、`delta ≥ 64` |
 | CLI | `--gpu command --gpu-command "<python> scripts/fake_gpu.py --leak-mb 32"` | 报告 `hardware.source == "command"`、`delta ≥ 32`，且 JSON 与 Markdown 一致 |
 
-`scripts/fake_gpu.py` 把「已占用量」存在 `/tmp/ttftkit-fake-gpu.json`，所以连续调用会累加——
+`scripts/fake_gpu.py` 把「已占用量」存在 `/tmp/ttftkit-fake-gpu.json`，所以连续调用会累加；
+要复现就从零开始：加 `--state <自己的路径> --session <本次实验名>`（换 session 才归零）——
 这就是「已知泄漏」的注入方式，不需要真的弄坏一个推理服务。
 
 本地实测（无 GPU 机器）用 `--gpu none` 采的基线，`hardware` 全程为 `null`；

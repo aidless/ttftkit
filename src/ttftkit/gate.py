@@ -199,6 +199,29 @@ def _check_hardware_evidence(report: dict, label: str) -> None:
             raise _ConfigError(
                 f"{label} {metric} ({observed!r}) disagrees with hardware.{key} ({expected!r})"
             )
+    # 块自身也要自洽：手拼的报告可以让 summary 与块「一致」却与实际采样形状矛盾
+    baseline = block.get("mem_used_baseline_mb")
+    peak = block.get("mem_used_peak_mb")
+    delta = block.get("mem_used_delta_mb")
+    if samples == 0 and any(value is not None for value in (baseline, peak, delta)):
+        raise _ConfigError(f"{label} hardware block has 0 samples but carries readings")
+    if samples < 2 and delta is not None:
+        raise _ConfigError(
+            f"{label} hardware.samples={samples} cannot have a mem_used_delta_mb "
+            "(needs a baseline and a second sample)"
+        )
+    if delta is not None:
+        for value in (baseline, peak):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise _ConfigError(
+                    f"{label} hardware.mem_used_delta_mb needs finite baseline/peak, "
+                    f"got {baseline!r}/{peak!r}"
+                )
+        if abs(float(delta) - (float(peak) - float(baseline))) > 1e-3:
+            raise _ConfigError(
+                f"{label} hardware.mem_used_delta_mb ({delta!r}) != peak - baseline "
+                f"({float(peak) - float(baseline):.3f})"
+            )
 
 
 def _hardware_fingerprint(report: dict, label: str) -> str:

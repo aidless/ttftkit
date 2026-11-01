@@ -162,3 +162,32 @@ def test_truncated_sampling_does_not_fail_the_run_by_itself():
     # 截断只影响“读数可能低报”，报告已披露；除非策略要 delta 而这种情形采不到足够样本
     r = report(samples=8, peak=1200.0, baseline=500.0, truncated=True, errors=1)
     assert evaluate(r, {"limits": {"ttft_ms.p95": 500}})["exit_code"] == 0
+
+
+def test_internally_inconsistent_hardware_block_is_configuration_error():
+    # 手拼的报告：块里 baseline/peak 说涨了 700 MB，delta 却写 5 —— 三数必须自洽
+    r = report(peak=1200.0, baseline=500.0)
+    r["hardware"]["mem_used_delta_mb"] = 5.0
+    r["summary"]["mem_used_delta_mb"] = 5.0
+    assert evaluate(r, {"limits": {"ttft_ms.p95": 500}})["exit_code"] == 2
+
+
+def test_delta_requires_at_least_two_samples():
+    r = report(samples=1, peak=800.0, baseline=800.0)
+    r["hardware"]["mem_used_delta_mb"] = 0.0
+    r["summary"]["mem_used_delta_mb"] = 0.0
+    assert evaluate(r, {"limits": {"ttft_ms.p95": 500}})["exit_code"] == 2
+
+
+def test_samples_zero_cannot_carry_any_reading():
+    r = report(samples=0)
+    r["hardware"]["mem_used_peak_mb"] = 512.0     # 零样本却说采到了
+    r["summary"]["mem_used_peak_mb"] = 512.0
+    assert evaluate(r, {"limits": {"ttft_ms.p95": 500}})["exit_code"] == 2
+
+
+def test_zero_samples_with_error_detail_is_still_valid():
+    r = report(samples=0)
+    r["hardware"]["sampler_errors"] = 3
+    r["hardware"]["error"] = "OSError"
+    assert evaluate(r, {"limits": {"ttft_ms.p95": 500}})["exit_code"] == 0
