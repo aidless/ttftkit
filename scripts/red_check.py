@@ -371,6 +371,75 @@ CASES = [
         "tests/test_package.py::test_version_matches_pyproject",
     ),
     (
+        "M27 config.hardware 必须与块重算的指纹一致（否则改块就能绕过可比性）",
+        [
+            ("src/ttftkit/gate.py",
+             """    declared = (report.get("config") or {}).get("hardware")
+    recomputed = _block_fingerprint(block)
+""",
+             """    declared = None
+    recomputed = None
+"""),
+        ],
+        "tests/test_gate_hardware.py::test_fingerprint_must_match_the_hardware_block "
+        "tests/test_gate_hardware.py::test_block_without_device_cannot_claim_a_fingerprint",
+    ),
+    (
+        "M28 截断采样的读数不能充当硬件规则证据",
+        [
+            ("src/ttftkit/gate.py",
+             """    if block.get("truncated") is True:
+        return "sampling was truncated at stop (peak may be under-reported)"
+""",
+             ""),
+        ],
+        "tests/test_gate_hardware.py::test_truncated_sampling_cannot_satisfy_a_hardware_limit",
+    ),
+    (
+        "M29 读数必须物理合理（非负、不超过设备总量）",
+        [
+            ("src/ttftkit/gate.py",
+             """    for key in ("mem_used_baseline_mb", "mem_used_peak_mb"):
+        value = block.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise _ConfigError(f"{label} hardware.{key} must be a finite number or null, got {value!r}")
+        if float(value) < 0:
+            raise _ConfigError(f"{label} hardware.{key} is negative ({value!r}): not a possible reading")
+    total = block.get("mem_total_mb")
+    if (peak is not None and isinstance(total, (int, float)) and not isinstance(total, bool)
+            and float(peak) > float(total) + 1e-6):
+        raise _ConfigError(
+            f"{label} hardware.mem_used_peak_mb ({peak!r}) exceeds device total ({total!r})"
+        )
+""",
+             ""),
+        ],
+        "tests/test_gate_hardware.py::test_negative_peak_is_configuration_error "
+        "tests/test_gate_hardware.py::test_peak_cannot_exceed_device_total",
+    ),
+    (
+        "M30 Collector 必须拒绝无采样器与不可降采样的 max_series",
+        [
+            ("src/ttftkit/hardware.py",
+             """        if sampler is None:
+            # 没有采样器就没有窗口起点，block() 也无从写 source：这种 Collector 是误用，
+            # 建的时候就说清楚（「不采样」的正确写法是根本不建 Collector）
+            raise ValueError("Collector needs a sampler; pass sampler=None by not creating one")
+""",
+             ""),
+            ("src/ttftkit/hardware.py",
+             """        if isinstance(max_series, bool) or not isinstance(max_series, int) or max_series < 2:
+            # 降采样公式用 max_series-1 做步长：0 → IndexError，1 → ZeroDivisionError
+            raise ValueError("max_series must be an integer >= 2")
+""",
+             ""),
+        ],
+        "tests/test_hardware.py::test_collector_without_sampler_is_a_programming_error "
+        "tests/test_hardware.py::test_max_series_must_be_usable_for_downsampling",
+    ),
+    (
         "M26 CLI 必须报得出自己的版本号",
         [
             ("src/ttftkit/cli.py",

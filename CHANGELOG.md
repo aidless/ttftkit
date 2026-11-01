@@ -2,6 +2,22 @@
 
 格式按 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号按语义化版本。
 
+## [0.2.1] - 2026-11-01
+
+第二轮独立审阅（N4–N8）后的门禁加固。全部是 **fail-open** 方向的问题：报告能被改得比真实情况更好看。
+
+- **指纹溯源**：`config.hardware` 必须等于门禁用 `hardware` 块自己重算的指纹。此前只信 config 的自称，
+  把块改成另一块卡而 config 不动，可比性门禁会被直接绕过（「写对就拦、写错反而不拦」）。
+- **截断采样不能当证据**：`stop()` 卡在采样器里时峰值可能被低报，硬件规则遇到 `truncated` 判 FAIL。
+- **物理合理性**：显存读数非负、峰值不得超过设备总量；`delta` 仍必须等于 `peak − baseline`。
+- **Collector 参数**：无采样器（`Collector(None)`）与 `max_series < 2` 直接报错，不再在 `block()` /
+  降采样里崩成 `AttributeError` / `IndexError` / `ZeroDivisionError`。
+- **CI 3.10**：`tests/test_package.py` 不再 `import tomllib`（3.11+ 才有）——v0.2.0 的 3.10 job 就是挂在
+  这里；版本判据不变（仍逐字比较 `pyproject` 的 `[project] version` 与 `ttftkit.__version__`）。
+- **文档**：`docs/gate.md` 补硬件可比性两条与 fail-closed 清单新增行。
+
+变异检查从 28 条增至 32 条（M27–M30 覆盖上述四项），全部实测变红。
+
 ## [0.2.0] — 2026-11-01
 
 ### 新增

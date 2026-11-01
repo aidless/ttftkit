@@ -235,11 +235,11 @@ def _check_hardware_evidence(report: dict, label: str) -> None:
         if float(value) < 0:
             raise _ConfigError(f"{label} hardware.{key} is negative ({value!r}): not a possible reading")
     total = block.get("mem_total_mb")
-    if peak is not None and isinstance(total, (int, float)) and not isinstance(total, bool):
-        if float(peak) > float(total) + 1e-6:
-            raise _ConfigError(
-                f"{label} hardware.mem_used_peak_mb ({peak!r}) exceeds device total ({total!r})"
-            )
+    if (peak is not None and isinstance(total, (int, float)) and not isinstance(total, bool)
+            and float(peak) > float(total) + 1e-6):
+        raise _ConfigError(
+            f"{label} hardware.mem_used_peak_mb ({peak!r}) exceeds device total ({total!r})"
+        )
     # 指纹溯源：config.hardware 必须等于「用块自己重算出来的指纹」。
     # 否则改一份报告的块（换卡/换容量）就能绕过可比性门禁 —— 只信自称等于「写对就拦、写错不拦」。
     declared = (report.get("config") or {}).get("hardware")

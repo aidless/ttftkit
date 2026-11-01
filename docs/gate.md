@@ -50,6 +50,13 @@ protocol / model / concurrency / max_tokens / requests / prompt_sha256 / profile
 
 任一不一致 → 退出码 `2`。`profile` 是使用者自己填的部署标识（如 `rtx4090-vllm-0.6.3`），它**不验证**硬件是否真的一致——那需要外部证据（`nvidia-smi` 输出、镜像 digest）。
 
+**硬件指标另有两条可比性**（`mem_used_peak_mb`、`mem_used_delta_mb`、`gpu_util_peak_pct` 出现在 `regressions` 或 `limits` 里时）：
+
+1. `config.hardware` 必须在两侧都存在，且**不**等于占位值（`""`/`"none"`/`"null"`）——「两侧都没采样」不是「同一块卡」。
+2. `config.hardware` 必须等于门禁**用 `hardware` 块自己重算**出来的指纹（`型号/总显存MB`）。只信 config 的自称等于「指纹写对就拦、写错（或陈旧）反而不拦」：把块改成另一块卡而 config 不动，过去会直接放行。
+
+显存总量不同 = 不可比；这包括**绝对上限**：512 MB 的增长上限在 6 GB 卡与 24 GB 卡上不是同一件事。硬件读数本身也要物理合理（非负、峰值不超过设备总量），否则按配置错误处理。
+
 `prompt_sha256` 只存哈希：prompt 原文可能含内部业务信息，不进报告。
 
 ## 5. fail-closed 清单
@@ -66,6 +73,11 @@ protocol / model / concurrency / max_tokens / requests / prompt_sha256 / profile
 | 分布 `count` < 成功请求数 | FAIL | 指标只覆盖子集 |
 | 任一请求失败 | FAIL | 默认不允许带病发布 |
 | 两份报告配置不一致 | 2 | 不是同一个实验 |
+| 硬件规则 + 缺指纹 / 占位指纹 / 指纹与块不符 | 2 | 跨卡比较无意义，五年前的指纹也不能当今天 |
+| 硬件规则 + 采样窗口被截断（`truncated`） | FAIL | 峰可能被低报，「可能漏掉的数」不是证据 |
+| `summary` 声称硬件值但报告没有 `hardware` 块 | 2 | 数字没有来源 |
+| 块内 `delta` ≠ `peak − baseline`，或零样本带读数 | 2 | 证据自相矛盾 |
+| 硬件读数为负 / 峰值 > 设备总量 | 2 | 物理上不可能 |
 
 失败预算默认是 **0**：不写 `error_rate` 上限时，任一请求失败即阻断。要允许偶发失败，必须显式把预算写进 `limits`（如 `"error_rate": 0.005` 表示 ≤0.5%），门禁按该预算判：`error_rate > budget` 才 FAIL。预算不是「默默放行」——它会作为一条显式的 `implicit` 检查出现在输出里。
 
