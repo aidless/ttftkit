@@ -99,3 +99,11 @@ def test_cli_invalid_parameters_have_usage_error(tmp_path):
                    '--model', 'tiny', flag, 0, '--output', tmp_path / 'invalid.json').returncode == 2
     assert cli('run', '--endpoint', 'https://user:secret@example.com/v1?key=secret',
                '--model', 'tiny', '--output', tmp_path / 'invalid.json').returncode == 2
+
+
+def test_version_flag_prints_the_installed_version():
+    # 用户在报 bug 时第一件事就是抄版本号；没有 --version 就只能去翻文件
+    proc = cli("--version")
+    assert proc.returncode == 0, proc.stderr
+    from ttftkit import __version__
+    assert __version__ in (proc.stdout + proc.stderr)

@@ -370,6 +370,15 @@ CASES = [
         ],
         "tests/test_package.py::test_version_matches_pyproject",
     ),
+    (
+        "M26 CLI 必须报得出自己的版本号",
+        [
+            ("src/ttftkit/cli.py",
+             '    parser.add_argument("--version", action="version", version=f"ttftkit {__version__}")\n',
+             ''),
+        ],
+        "tests/test_cli.py::test_version_flag_prints_the_installed_version",
+    ),
 ]
 
 

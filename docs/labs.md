@@ -104,7 +104,7 @@ PYTHONPATH=src python3 scripts/shadow_gate.py --report baselines/run1.json \
 
 ```bash
 cat .github/workflows/ci.yml
-PYTHONPATH=src python3 scripts/red_check.py    # 27/27 条必须 RED
+PYTHONPATH=src python3 scripts/red_check.py    # 28/28 条必须 RED
 python3 -m ruff check src tests scripts
 python3 -m pytest -q
 ```

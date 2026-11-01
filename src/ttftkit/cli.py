@@ -10,6 +10,7 @@ import shlex
 import sys
 from pathlib import Path
 
+from . import __version__
 from .gate import evaluate
 from .hardware import command_sampler, detect_sampler
 from .report import markdown, write
@@ -103,6 +104,8 @@ def cmd_report(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ttftkit", description="LLM 推理服务性能测量与回归门禁")
+    # 版本号只有 __init__ 一个真相源；报 bug 时用户第一条信息就是这个
+    parser.add_argument("--version", action="version", version=f"ttftkit {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="对 OpenAI 兼容端点做一次测量")

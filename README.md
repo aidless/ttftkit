@@ -140,7 +140,7 @@ python3 -m ruff check src tests scripts
 python3 scripts/red_check.py  # RED 反证：把修复回退后，对应测试必须变红
 ```
 
-`red_check.py` 是变异检查的自动化版本：在临时副本上逐条回退修复（TTFT 取值时机、门禁边界、吞吐分母、token 口径、坏 `choices`、总时限、错误串回显、非字符串 `content`、残缺报告、warmup 退出码、`count=0` 带分位数、显存 `null`→`0`、硬件可比性、影子门禁退出码、label 恒 PASS、利用率方向、stop 截断、单样本 delta、零样本块、指纹 `none`、证据链不一致、影子读坏输入），跑对应用例并断言它**失败**。当前 27/27 全部变红——修复若只是摆设，这一步会变绿并报错。
+`red_check.py` 是变异检查的自动化版本：在临时副本上逐条回退修复（TTFT 取值时机、门禁边界、吞吐分母、token 口径、坏 `choices`、总时限、错误串回显、非字符串 `content`、残缺报告、warmup 退出码、`count=0` 带分位数、显存 `null`→`0`、硬件可比性、影子门禁退出码、label 恒 PASS、利用率方向、stop 截断、单样本 delta、零样本块、指纹 `none`、证据链不一致、影子读坏输入），跑对应用例并断言它**失败**。当前 28/28 全部变红——修复若只是摆设，这一步会变绿并报错。
 
 按 JD 练习的路径见 [`docs/labs.md`](docs/labs.md)（8 个实验，每个都有可复跑的通过判据）。
 
