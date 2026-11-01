@@ -58,7 +58,7 @@ ttftkit run ... --sample-interval 0.1
 
 ```bash
 PYTHONPATH=src python3 -m pytest -q tests/test_hardware.py tests/test_runner_hardware.py tests/test_cli_hardware.py
-PYTHONPATH=src python3 scripts/red_check.py     # M9–M24 必须 RED
+PYTHONPATH=src python3 scripts/red_check.py     # M9–M25 必须 RED
 ```
 
 | 层 | 做法 | 断言 |

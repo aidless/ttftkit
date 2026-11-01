@@ -67,3 +67,5 @@ ttftkit run --endpoint http://127.0.0.1:8000/v1/chat/completions \
 - 不做分布式多机压测（用 `aiperf`）。
 - 不做模型精度评测（那是 lm-eval-harness 的活）。
 - 不内置 LLM 生成的「结论」——报告只给数字与判定，解读由人写。
+
+版本历史见 [`CHANGELOG.md`](../CHANGELOG.md)。

@@ -361,6 +361,15 @@ CASES = [
         ],
         "tests/test_gate_hardware.py::test_samples_zero_cannot_carry_any_reading",
     ),
+    (
+        "M25 版本号只有一个真相源（pyproject == __init__）",
+        [
+            ("src/ttftkit/__init__.py",
+             '__version__ = "0.2.0"',
+             '__version__ = "0.0.0"'),
+        ],
+        "tests/test_package.py::test_version_matches_pyproject",
+    ),
 ]
 
 
