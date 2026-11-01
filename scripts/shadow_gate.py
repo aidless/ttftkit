@@ -44,9 +44,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--strict", action="store_true", help="把 gate 退出码原样返回（发布线用）")
     args = parser.parse_args(argv)
 
-    report = _load(args.report)
-    policy = _load(args.policy)
-    baseline = _load(args.baseline) if args.baseline else None
+    try:
+        report = _load(args.report)
+        policy = _load(args.policy)
+        baseline = _load(args.baseline) if args.baseline else None
+    except (OSError, ValueError) as exc:
+        # 文件缺失 / 坏 JSON 不是「规则不通过」：两者都用 1 的话，CI 会把坏文件当成性能回归。
+        print(f"shadow-gate: 无法读取输入（{type(exc).__name__}）：{exc}")
+        return 2
     verdict = evaluate(report, policy, baseline)
     code = verdict["exit_code"]
     label = {0: "PASS", 1: "FAIL", 2: "不合法/不可比"}.get(code, str(code))

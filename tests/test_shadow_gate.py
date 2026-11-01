@@ -59,3 +59,16 @@ def test_invalid_report_is_reported_as_not_comparable_not_silently_ok(tmp_path, 
     out = capsys.readouterr().out
     assert code == 0  # 影子模式仍不阻断…
     assert "不合法/不可比" in out  # …但必须说清是「输入不对」而不是「通过」
+
+
+def test_missing_or_broken_inputs_are_not_reported_as_rule_failure(tmp_path, capsys):
+    # 文件缺失 / 坏 JSON 若也返回 1，CI 会把「输入坏了」当成「性能回归」，两者必须分开
+    policy = _policy(tmp_path, 500.0)
+    missing = shadow_main(["--report", str(tmp_path / "nope.json"), "--policy", policy])
+    assert missing == 2
+    assert "无法读取输入" in capsys.readouterr().out
+
+    broken = tmp_path / "broken.json"
+    broken.write_text("{not json", encoding="utf-8")
+    assert shadow_main(["--report", str(broken), "--policy", policy]) == 2
+    assert "无法读取输入" in capsys.readouterr().out

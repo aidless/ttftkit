@@ -38,7 +38,7 @@ ttftkit run ... --sample-interval 0.1
 | 有 rocm-smi | `hardware.source = "rocm-smi"`，字节 ÷ 1024² 转 MB |
 | `--gpu none` 或无工具 | `hardware = null`，`summary.mem_used_*` 一律 `null`（**不是 0**） |
 | 采样器中途报错 | `sampler_errors > 0`、`error` 记首个异常类名；只要有 1 次成功采样仍出块，并在报告里写明「数字只覆盖采样成功的时刻」 |
-| 一次都没采到 | `hardware = null`；此时若策略要求看显存 → 门禁判「无可用值」FAIL |
+| 一次都没采到 | `hardware` 仍有块（`samples = 0`、`sampler_errors > 0`、`error` 记首个异常），报告写「采样失败」；策略要求显存时门禁判「无可用值」FAIL |
 
 `null` 与 `0` 的区别是这份工最关键的一条：`0 MB` 会被下游读成「测到了，没占显存」，
 而 `null` 才能让门禁说「你没测」。这条有专门的反证（`red_check` M10：把 `return None` 改回 `return 0.0`，
@@ -58,7 +58,7 @@ ttftkit run ... --sample-interval 0.1
 
 ```bash
 PYTHONPATH=src python3 -m pytest -q tests/test_hardware.py tests/test_runner_hardware.py tests/test_cli_hardware.py
-PYTHONPATH=src python3 scripts/red_check.py     # M9–M12 必须 RED
+PYTHONPATH=src python3 scripts/red_check.py     # M9–M21 必须 RED
 ```
 
 | 层 | 做法 | 断言 |
@@ -83,6 +83,10 @@ PYTHONPATH=src python3 scripts/red_check.py     # M9–M12 必须 RED
 - 相对回归：显存类规则要求两侧报告的 `config.hardware` 指纹**相同**（`"name/totalMB"`），
   否则判「不可比」退出 2——24 GB 卡上的 1.8 GB 峰值拿去和 6 GB 卡比是没意义的。
   指纹缺失（旧报告没采样）同样判不可比，而不是默默当作同一块卡。
+- 绝对上限**也查指纹**（只要给了基线）：512 MB 的增长上限在 6 GB 卡与 24 GB 卡上不是同一件事。
+  单跑一份报告、不给基线时仍可只做绝对判断。
+- **利用率方向是反的**：`gpu_util_peak_pct` 属于「越高越好」，`limits` 里写 `90` 的意思是
+  「至少要跑到 90%」（压测是否真的把卡跑满）。写成上限会把正常的满载压测判失败、把空转判通过。
 
 ## 已知边界
 
@@ -90,5 +94,6 @@ PYTHONPATH=src python3 scripts/red_check.py     # M9–M12 必须 RED
   要排除，用独占机器或 MIG 隔离后重采基线。
 - 采样是轮询：间隔内的一次性尖峰可能被漏掉；判断泄漏看趋势，不要只看单个 0.25 s 窗口。
 - 不做 ECC / 温度 / 功耗 / PCIe 吞吐（那是 DCGM 的范围，见 `docs/ecosystem.md`）。
+- 指纹只含「设备名 + 显存总量」：同型号不同主机指纹相同，跨机比较要自己确认是不是同一台。
 - 不做多卡聚合：nvidia-smi 默认返回第一块卡的 CSV 行，多卡场景要自己写 `--gpu-command`
   （例如 `nvidia-smi --id=0,1 ...` 后自行聚合）。

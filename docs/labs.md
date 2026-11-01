@@ -49,7 +49,8 @@ PYTHONPATH=src python3 -m pytest -q tests/test_client_hardening.py -v
 场景都在 `tests/conftest.py` 的 `SCENARIOS` 里：
 `bad-json`（块本身不是 JSON）、`bad-chunk`（非法分块头）、`cut`（流中断）、`empty`（无 content 块）、
 `no-usage`（缺 usage）、`dict-choices`（`choices` 是对象不是数组）、`bad-content`（content 是数字）、
-`secret-usage` / `secret-finish`（服务端把秘密塞进 usage/finish_reason）、`trickle` / `trickle-nonl`（慢滴流）。
+`secret-usage` / `secret-finish`（服务端把秘密塞进 usage/finish_reason）、`trickle` / `trickle-nonl`（慢滴流）、
+`http500`（服务端直接 500）。
 
 **通过判据**：能说出每种坏输入被映射成什么——失败请求（`ok=false` + 固定文案）、还是整体不可信
 （如缺 usage → 吞吐置 `null` 并报 `token_usage_coverage < 1`），以及为什么**不能**把服务端原始字节
@@ -103,7 +104,7 @@ PYTHONPATH=src python3 scripts/shadow_gate.py --report baselines/run1.json \
 
 ```bash
 cat .github/workflows/ci.yml
-PYTHONPATH=src python3 scripts/red_check.py    # 16/16 条必须 RED
+PYTHONPATH=src python3 scripts/red_check.py    # 23/23 条必须 RED
 python3 -m ruff check src tests scripts
 python3 -m pytest -q
 ```

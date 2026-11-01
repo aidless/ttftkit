@@ -19,7 +19,7 @@ summary 里三个标量（`mem_used_peak_mb` / `mem_used_delta_mb` / `gpu_util_p
 接入顺序（从轻到重）：
 
 1. **`nvidia-smi --query-gpu=...`**：零依赖，`--sample-interval` 默认 0.25 s。✅ 已实现（`auto` 优先探测它）
-2. **rocm-smi**：AMD 卡走 `--showmeminfo vram --showuse --json`，字节 ÷ 1024² 转 MB。✅ 已实现（本机有这个工具但无设备，只有解析层单测覆盖）
+2. **rocm-smi**：AMD 卡走 `--showmeminfo vram --showuse --json`，字节 ÷ 1024² 转 MB。✅ 已实现（本机 `which rocm-smi` 为空，只有解析层单测覆盖，未在真卡上跑过）
 3. **自定义命令**：`--gpu command --gpu-command "..."`，stdout 须是 nvidia-smi CSV 格式；多卡/自定义字段的逃生口。✅ 已实现
 4. **pynvml / nvitop**：进程内采样，精度高，但需要 GPU 与驱动；本机（无 NVIDIA 用户态库）无法验证，**推迟到能在云 GPU 上跑通再合并**。
 5. **DCGM exporter + Prometheus + Grafana**：集群级监控，压测时同时抓 `DCGM_FI_DEV_FB_USED`、`DCGM_FI_DEV_GPU_UTIL`（字段名以 dcgm-exporter README 为准）。这是 JD 加分项里的 Prometheus/Grafana 组合，仍未接。

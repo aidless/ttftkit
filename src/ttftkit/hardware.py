@@ -13,7 +13,6 @@ import json
 import shutil
 import subprocess
 import threading
-import time
 from dataclasses import dataclass
 
 NVIDIA_QUERY = [
@@ -138,12 +137,17 @@ def detect_sampler() -> CommandSampler | RocmSampler | None:
 class Collector:
     """在测量窗口内按间隔采样；线程只做采样，聚合在 block() 里一次算清。"""
 
-    def __init__(self, sampler, *, interval_s: float = 0.25, max_series: int = 120):
+    def __init__(self, sampler, *, interval_s: float = 0.25, max_series: int = 120,
+                 stop_timeout_s: float | None = None):
         if interval_s <= 0:
             raise ValueError("sample interval must be positive")
         self.sampler = sampler
         self.interval_s = interval_s
         self.max_series = max_series
+        # 停线程的等待上限：线程卡在采样器里时不能无限等，但也不能装作它已经停了
+        self.stop_timeout_s = interval_s * 4 + 1.0 if stop_timeout_s is None else stop_timeout_s
+        if stop_timeout_s is not None and stop_timeout_s <= 0:
+            raise ValueError("stop timeout must be positive")
         self._values: list[float] = []
         self._util: list[float] = []
         self._total: float | None = None
@@ -151,6 +155,8 @@ class Collector:
         self._driver: str | None = None
         self._errors = 0
         self._first_error: str | None = None
+        self._truncated = False
+        self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -158,16 +164,18 @@ class Collector:
         try:
             sample = self.sampler.sample()
         except Exception as exc:  # 采样失败不能拖垮压测，但必须被记下来
-            self._errors += 1
-            if self._first_error is None:
-                self._first_error = type(exc).__name__
+            with self._lock:
+                self._errors += 1
+                if self._first_error is None:
+                    self._first_error = type(exc).__name__
             return False
-        self._values.append(float(sample.mem_used_mb))
-        self._total = float(sample.mem_total_mb)
-        self._name = sample.name
-        self._driver = sample.driver
-        if sample.utilization_pct is not None:
-            self._util.append(float(sample.utilization_pct))
+        with self._lock:
+            self._values.append(float(sample.mem_used_mb))
+            self._total = float(sample.mem_total_mb)
+            self._name = sample.name
+            self._driver = sample.driver
+            if sample.utilization_pct is not None:
+                self._util.append(float(sample.utilization_pct))
         return True
 
     def start(self) -> None:
@@ -185,52 +193,71 @@ class Collector:
     def stop(self) -> dict | None:
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=self.interval_s * 4 + 1.0)
+            self._thread.join(timeout=self.stop_timeout_s)
+            if self._thread.is_alive():
+                # 线程卡在采样器里：切不断，就如实记一笔——否则峰值会被低报而报告看不出来
+                with self._lock:
+                    self._errors += 1
+                    self._truncated = True
+                    if self._first_error is None:
+                        self._first_error = "SamplerBusyAtStop"
             self._thread = None
         return self.block()
 
-    def _series(self) -> list[float]:
-        if len(self._values) <= self.max_series:
-            return list(self._values)
-        stride = (len(self._values) - 1) / (self.max_series - 1)
-        picked = [self._values[round(i * stride)] for i in range(self.max_series)]
-        picked[-1] = self._values[-1]
+    def _series(self, values: list[float]) -> list[float]:
+        if len(values) <= self.max_series:
+            return list(values)
+        stride = (len(values) - 1) / (self.max_series - 1)
+        picked = [values[round(i * stride)] for i in range(self.max_series)]
+        picked[-1] = values[-1]  # 末点是窗口终点，降采样不能把它扔掉
         return picked
 
-    def block(self) -> dict | None:
-        if not self._values:
-            return None
-        baseline = self._values[0]
-        peak = max(self._values)
+    def block(self) -> dict:
+        """聚合出硬件块。只要尝试过采样就返回块——一次都没采到也要返回，
+        把 sampler_errors / error 落盘，否则「GPU 监控坏了」会表现为「没要求采样」。"""
+        with self._lock:
+            values = list(self._values)
+            utils = list(self._util)
+            total, name, driver = self._total, self._name, self._driver
+            errors, first_error, truncated = self._errors, self._first_error, self._truncated
+        baseline = values[0] if values else None
+        peak = max(values) if values else None
         return {
             "source": self.sampler.source,
-            "name": self._name,
-            "driver": self._driver,
-            "mem_total_mb": self._total,
+            "name": name,
+            "driver": driver,
+            "mem_total_mb": total,
             "mem_used_baseline_mb": baseline,
             "mem_used_peak_mb": peak,
-            "mem_used_delta_mb": round(peak - baseline, 3),
-            "utilization_peak_pct": max(self._util) if self._util else None,
-            "samples": len(self._values),
+            # 单样本时「增长」无从谈起：delta 必须是 null，不能是 0（0 会被读成「测到没涨」）
+            "mem_used_delta_mb": round(peak - baseline, 3) if len(values) >= 2 else None,
+            "utilization_peak_pct": max(utils) if utils else None,
+            "samples": len(values),
             "interval_s": self.interval_s,
-            "sampler_errors": self._errors,
-            "error": self._first_error,
-            "mem_used_series_mb": self._series(),
+            "sampler_errors": errors,
+            "error": first_error,
+            "truncated": truncated,
+            "mem_used_series_mb": self._series(values),
         }
 
 
-def fingerprint(block: dict | None) -> str:
-    """硬件指纹：显存总量不同的两块卡，性能数字不可直接比较。"""
-    if not block or not block.get("name"):
-        return "none"
-    total = block.get("mem_total_mb")
-    return f"{block['name']}/{total:g}MB" if isinstance(total, (int, float)) else str(block["name"])
+def fingerprint(block: dict | None) -> str | None:
+    """硬件指纹：显存总量不同的两块卡，性能数字不可直接比较。
+
+    拿不到设备名或总量时返回 None（不是字符串 "none"）——"none" 是 truthy，
+    会让「两侧都没采样」被当成「同一块卡」而绕过可比性检查。
+    """
+    if not isinstance(block, dict):
+        return None
+    name, total = block.get("name"), block.get("mem_total_mb")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    if isinstance(total, bool) or not isinstance(total, (int, float)) or total <= 0:
+        return None
+    return f"{name}/{total:g}MB"
 
 
 def is_monotonic(series) -> bool:
     """严格单调上升（验收「注入已知泄漏」用；平票不算上升）。"""
     return all(b > a for a, b in zip(series, series[1:], strict=False))
 
-
-def now() -> float:  # 便于测试替换
-    return time.perf_counter()

@@ -35,16 +35,19 @@ def test_run_without_sampler_has_no_hardware_evidence(sse_base):
     assert result_adict["hardware"] is None
     assert result_adict["summary"]["mem_used_peak_mb"] is None
     assert result_adict["summary"]["mem_used_delta_mb"] is None
-    assert result_adict["config"]["hardware"] == "none"
+    # 指纹写 None，不写 "none"：字符串 "none" 是 truthy，门禁会把它当成一块卡
+    assert result_adict["config"]["hardware"] is None
 
 
-def test_leaking_gpu_command_is_detected_end_to_end(sse_base):
+def test_leaking_gpu_command_is_detected_end_to_end(sse_base, tmp_path):
     # 真实子进程脚本，每次被调用多分配 64MB（模拟已知显存泄漏），走完整命令采样路径
-    sampler = hardware.command_sampler([sys.executable, str(SCRIPT), "--leak-mb", "64"])
+    state = str(tmp_path / "fake-gpu.json")
+    sampler = hardware.command_sampler(
+        [sys.executable, str(SCRIPT), "--leak-mb", "64", "--session", "s1", "--state", state])
     result_adict = _run(sse_base, sampler=sampler, interval=0.02)
     hw = result_adict["hardware"]
     series = hw["mem_used_series_mb"]
     assert hw["samples"] >= 2, f"采样次数不足：{series}"
-    assert all(b > a for a, b in zip(series, series[1:], strict=False)), f"泄漏未表现为单调上升：{series}"
+    assert hardware.is_monotonic(series), f"泄漏未表现为单调上升：{series}"
     assert hw["mem_used_delta_mb"] >= 64.0
     assert result_adict["summary"]["mem_used_delta_mb"] == hw["mem_used_delta_mb"]

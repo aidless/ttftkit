@@ -36,11 +36,20 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -e .
-      - name: 影子门禁（非阻断）
-        continue-on-error: true
+      - name: 影子门禁（非阻断：脚本恒返回 0，这一层只证明它真的判过）
         run: |
+          set -euo pipefail
           for f in baselines/run1.json baselines/run2.json baselines/run3.json baselines/run4.json baselines/run5.json; do
             echo "===== $f ====="
-            python scripts/shadow_gate.py --report "$f" --baseline baselines/main.json --policy configs/policy.baseline.json
+            out=$(python scripts/shadow_gate.py --report "$f" --baseline baselines/main.json --policy configs/policy.baseline.json)
+            echo "$out"
+            # 影子模式恒返回 0 ⇒ 「没报错」不能证明「判过」。这里要求至少一条逐条读数。
+            if ! printf '%s\n' "$out" | grep -qE '^  \[(PASS|FAIL)\]'; then
+              echo "::error::影子门禁没有输出任何读数，说明它根本没跑起来"
+              exit 1
+            fi
+            if printf '%s\n' "$out" | grep -q '无法读取输入'; then
+              echo "::error::影子门禁读到了坏输入"
+              exit 1
+            fi
           done
-

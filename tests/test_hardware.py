@@ -4,6 +4,8 @@
 本文件用合成采样器（真实实现 Sampler 协议）驱动真实聚合逻辑，
 另用真实子进程脚本验证命令采样器的端到端路径。
 """
+import time
+
 import pytest
 
 from ttftkit import hardware
@@ -127,7 +129,7 @@ def test_injected_leak_must_show_monotonic_growth():
     block = c.block()
     series = block["mem_used_series_mb"]
     assert series == values
-    assert all(b > a for a, b in zip(series, series[1:], strict=False)), "泄漏必须表现为严格上升"
+    assert hardware.is_monotonic(series), "泄漏必须表现为严格上升"
     assert block["mem_used_delta_mb"] == leak_mb * 4
 
 
@@ -142,16 +144,55 @@ def test_sampler_error_is_counted_not_fatal():
     assert block["error"] == "OSError"
 
 
-def test_collector_with_no_samples_returns_none():
-    class Dead:
-        source = "dead"
+def test_collector_with_no_samples_still_reports_the_failure():
+    # 采样器全灭 ≠ 没有采样器：块必须留下，错误必须能被报告与门禁看见。
+    c = hardware.Collector(BoomSampler(fail_on=1), interval_s=0.01)
+    c.sample_once()
+    block = c.block()
+    assert block["samples"] == 0
+    assert block["sampler_errors"] == 1
+    assert block["error"] == "OSError"
+    assert block["mem_used_baseline_mb"] is None
+    assert block["mem_used_peak_mb"] is None
+    assert block["mem_used_delta_mb"] is None
+    assert block["mem_used_series_mb"] == []
+
+
+def test_single_sample_has_no_delta():
+    # 一个样本算不出增长：必须是 None，不能是 0.0（0.0 会冒充「测到了、没涨」）
+    c = hardware.Collector(FakeSampler([800.0]), interval_s=0.01)
+    c.sample_once()
+    block = c.block()
+    assert block["samples"] == 1
+    assert block["mem_used_peak_mb"] == 800.0
+    assert block["mem_used_delta_mb"] is None
+
+
+def test_stop_timeout_is_recorded_as_truncated_not_silently_dropped():
+    # 采样线程卡在 sampler 里：join 超时后必须留痕（否则峰值被低报而报告说“错误 0 次”）
+    class Slow:
+        source = "slow"
 
         def sample(self):
-            raise OSError("no device")
+            time.sleep(0.3)
+            return hardware.GpuSample(name="Fake GPU", driver="1.0", mem_total_mb=6144.0,
+                                      mem_used_mb=512.0)
 
-    c = hardware.Collector(Dead(), interval_s=0.01)
-    c.sample_once()
-    assert c.block() is None
+    c = hardware.Collector(Slow(), interval_s=0.01, stop_timeout_s=0.05)
+    c.start()          # start() 里那次同步采样要 0.3s
+    time.sleep(0.05)   # 让后台线程真正进到 sample() 里（间隔 0.01s 后它就开始了）
+    block = c.stop()
+    assert block["truncated"] is True
+    assert block["sampler_errors"] >= 1
+    assert block["error"] == "SamplerBusyAtStop"
+
+
+def test_fingerprint_is_none_without_a_device():
+    # "none" 是 truthy：门禁若拿它当指纹，两块都没有卡的报告会被判成“同一块卡”
+    assert hardware.fingerprint(None) is None
+    assert hardware.fingerprint({}) is None
+    assert hardware.fingerprint({"name": "Fake GPU", "mem_total_mb": None}) is None
+    assert hardware.fingerprint({"name": "Fake GPU", "mem_total_mb": 6144.0}) == "Fake GPU/6144MB"
 
 
 def test_detect_sampler_returns_none_without_tools(monkeypatch):

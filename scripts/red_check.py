@@ -83,6 +83,7 @@ CASES = [
              "            return {\"exit_code\": 2, \"checks\": [], \"reasons\": [\"baseline report has no summary block\"]}\n"  # noqa: E501
              "        try:\n"
              "            _validate_summary(base)\n"
+             "            _check_hardware_evidence(baseline, \"baseline\")\n"
              "        except _ConfigError as exc:\n"
              "            return {\"exit_code\": 2, \"checks\": [], \"reasons\": [f\"baseline: {exc}\"]}\n",
              ""),
@@ -165,14 +166,16 @@ CASES = [
         "M11 不同硬件的显存回归不可比（exit 2）",
         [
             ("src/ttftkit/gate.py",
-             """        # 显存/利用率的相对比较只对同一块卡有意义：指纹缺失或不同 → 不可比
-        if any(name in HARDWARE_METRICS for name in policy["regressions"]):
-            cand_hw = (candidate.get("config") or {}).get("hardware")
-            base_hw = (baseline.get("config") or {}).get("hardware")
-            if not cand_hw or not base_hw:
-                return {"exit_code": 2, "checks": [], "reasons": [
-                    "hardware regression needs 'config.hardware' in both candidate and baseline; "
-                    f"got candidate={cand_hw!r} baseline={base_hw!r}"]}
+             """        # 显存/利用率的比较只对同一块卡有意义（绝对上限同理：512 MB 的增长上限
+        # 在 6 GB 卡与 24 GB 卡上不是同一件事）。指纹缺失/非法/不同 → 不可比。
+        hw_rules = [n for n in list(policy["regressions"]) + list(policy["limits"])
+                    if n in HARDWARE_METRICS]
+        if hw_rules:
+            try:
+                cand_hw = _hardware_fingerprint(candidate, "candidate")
+                base_hw = _hardware_fingerprint(baseline, "baseline")
+            except _ConfigError as exc:
+                return {"exit_code": 2, "checks": [], "reasons": [str(exc)]}
             if cand_hw != base_hw:
                 return {"exit_code": 2, "checks": [], "reasons": [
                     f"hardware differs ({cand_hw!r} vs {base_hw!r}): not comparable"]}
@@ -183,17 +186,14 @@ CASES = [
         "tests/test_gate_hardware.py::test_report_without_hardware_fingerprint_is_not_comparable",
     ),
     (
-        "M12 硬件标量类型/符号校验（坏报告 exit 2）",
+        "M12 硬件读数必须是有限非负数（坏报告 exit 2）",
         [
             ("src/ttftkit/gate.py",
-             """    for metric in HARDWARE_METRICS:
-        node = summary.get(metric)
-        if node is None:
-            continue  # 未采样（schema 允许）——规则用到它时由上层判「无可用值」
-        if isinstance(node, bool) or not isinstance(node, (int, float)):
-            raise _ConfigError(f"'{metric}' must be a number or null, got {node!r}")
-        if not math.isfinite(node) or node < 0:
-            raise _ConfigError(f"'{metric}' must be finite and non-negative, got {node!r}")
+             """        for value in (expected, observed):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise _ConfigError(
+                    f"{label} {metric} does not match hardware.{key}: {observed!r} vs {expected!r}"
+                )
 """,
              ""),
         ],
@@ -216,6 +216,111 @@ CASES = [
              'label = "PASS"'),
         ],
         "tests/test_shadow_gate.py::test_invalid_report_is_reported_as_not_comparable_not_silently_ok",
+    ),
+    (
+        "M15 利用率方向（limits 是下限，不是上限）",
+        [
+            ("src/ttftkit/gate.py",
+             '     "token_usage_coverage", "goodput_per_s", "gpu_util_peak_pct"}',
+             '     "token_usage_coverage", "goodput_per_s"}'),
+        ],
+        "tests/test_gate_hardware.py::test_utilization_limit_is_a_floor_not_a_ceiling",
+    ),
+    (
+        "M16 stop() 超时必须留下截断痕迹（不能装作线程已经停了）",
+        [
+            ("src/ttftkit/hardware.py",
+             """            if self._thread.is_alive():
+                # 线程卡在采样器里：切不断，就如实记一笔——否则峰值会被低报而报告看不出来
+                with self._lock:
+                    self._errors += 1
+                    self._truncated = True
+                    if self._first_error is None:
+                        self._first_error = "SamplerBusyAtStop"
+""",
+             """            if self._thread.is_alive():
+                pass
+"""),
+        ],
+        "tests/test_hardware.py::test_stop_timeout_is_recorded_as_truncated_not_silently_dropped",
+    ),
+    (
+        "M17 单样本的 delta 必须是 null（不能是 0）",
+        [
+            ("src/ttftkit/hardware.py",
+             '"mem_used_delta_mb": round(peak - baseline, 3) if len(values) >= 2 else None,',
+             '"mem_used_delta_mb": round(peak - baseline, 3) if len(values) >= 2 else 0.0,'),
+        ],
+        "tests/test_hardware.py::test_single_sample_has_no_delta "
+        "tests/test_gate_hardware.py::test_single_sample_cannot_satisfy_a_delta_limit",
+    ),
+    (
+        "M18 一次都没采到也要返回块（坏掉的监控不能静默）",
+        [
+            ("src/ttftkit/hardware.py",
+             """        with self._lock:
+            values = list(self._values)
+            utils = list(self._util)""",
+             """        if not self._values:
+            return None
+        with self._lock:
+            values = list(self._values)
+            utils = list(self._util)"""),
+        ],
+        "tests/test_hardware.py::test_collector_with_no_samples_still_reports_the_failure "
+        "tests/test_report.py::test_dead_sampler_is_reported_as_sampling_failure_not_unsampled",
+    ),
+    (
+        "M19 指纹缺失必须返回 None（字符串 none 是 truthy，会绕过可比性）",
+        [
+            ("src/ttftkit/hardware.py",
+             """    if not isinstance(block, dict):
+        return None
+    name, total = block.get("name"), block.get("mem_total_mb")
+    if not isinstance(name, str) or not name.strip():
+        return None""",
+             """    if not isinstance(block, dict):
+        return "none"
+    name, total = block.get("name"), block.get("mem_total_mb")
+    if not isinstance(name, str) or not name.strip():
+        return "none"
+"""),
+        ],
+        "tests/test_hardware.py::test_fingerprint_is_none_without_a_device "
+        "tests/test_gate_hardware.py::test_placeholder_fingerprint_is_not_a_comparable_hardware",
+    ),
+    (
+        "M20 summary 与 hardware 块不一致必须 exit 2",
+        [
+            ("src/ttftkit/gate.py",
+             '        _check_hardware_evidence(candidate, "candidate")\n',
+             ''),
+            ("src/ttftkit/gate.py",
+             '            _check_hardware_evidence(baseline, "baseline")\n',
+             ''),
+        ],
+        "tests/test_gate_hardware.py::test_summary_disagreeing_with_hardware_block_is_configuration_error "
+        "tests/test_gate_hardware.py::test_summary_without_hardware_block_is_configuration_error",
+    ),
+    (
+        "M21 影子门禁读不到输入必须是 exit 2（不能伪装成规则不通过）",
+        [
+            ("scripts/shadow_gate.py",
+             """    try:
+        report = _load(args.report)
+        policy = _load(args.policy)
+        baseline = _load(args.baseline) if args.baseline else None
+    except (OSError, ValueError) as exc:
+        # 文件缺失 / 坏 JSON 不是「规则不通过」：两者都用 1 的话，CI 会把坏文件当成性能回归。
+        print(f"shadow-gate: 无法读取输入（{type(exc).__name__}）：{exc}")
+        return 2
+""",
+             """    report = _load(args.report)
+    policy = _load(args.policy)
+    baseline = _load(args.baseline) if args.baseline else None
+"""),
+        ],
+        "tests/test_shadow_gate.py::test_missing_or_broken_inputs_are_not_reported_as_rule_failure",
     ),
 ]
 

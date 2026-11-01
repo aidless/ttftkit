@@ -27,6 +27,13 @@ SCALAR_METRICS = (
 )
 # 硬件指标的相对比较只在同一块卡上有意义：显存总量不同 = 不可比
 HARDWARE_METRICS = frozenset({"mem_used_peak_mb", "mem_used_delta_mb", "gpu_util_peak_pct"})
+# summary 标量与 hardware 块字段的一一对应：两者必须一致，否则报告是拼出来的
+_HW_FIELDS = {
+    "mem_used_peak_mb": "mem_used_peak_mb",
+    "mem_used_delta_mb": "mem_used_delta_mb",
+    "gpu_util_peak_pct": "utilization_peak_pct",
+}
+MISSING_FINGERPRINTS = frozenset({"", "none", "None", "null"})
 KNOWN_METRICS = frozenset(
     [f"{m}.{f}" for m in DIST_METRICS for f in DIST_FIELDS] + list(SCALAR_METRICS)
 )
@@ -37,8 +44,10 @@ PER_REQUEST_DISTS = ("ttft_ms", "tpot_ms", "latency_ms", "decode_ms")
 
 HIGHER_IS_BETTER = frozenset(
     {"requests", "successful_requests", "requests_per_s", "output_tokens_per_s",
-     "token_usage_coverage", "goodput_per_s"}
+     "token_usage_coverage", "goodput_per_s", "gpu_util_peak_pct"}
 )
+# 注：gpu_util_peak_pct 方向是「越高越好」——策略里的 limits 是下限（要求真的跑满了卡），
+# 而不是上限。写成上限会把「利用率 99% 的正常压测」判失败、把空转判通过。
 
 CONFIG_KEYS = ("protocol", "model", "concurrency", "max_tokens", "requests", "prompt_sha256", "profile")
 
@@ -154,14 +163,56 @@ def _validate_summary(summary: dict) -> None:
             raise _ConfigError(
                 f"'{metric}.count' ({count}) exceeds successful_requests ({successful})"
             )
-    for metric in HARDWARE_METRICS:
-        node = summary.get(metric)
-        if node is None:
-            continue  # 未采样（schema 允许）——规则用到它时由上层判「无可用值」
-        if isinstance(node, bool) or not isinstance(node, (int, float)):
-            raise _ConfigError(f"'{metric}' must be a number or null, got {node!r}")
-        if not math.isfinite(node) or node < 0:
-            raise _ConfigError(f"'{metric}' must be finite and non-negative, got {node!r}")
+
+
+def _check_hardware_evidence(report: dict, label: str) -> None:
+    """summary 里的硬件标量必须能追溯到 hardware 块，且块本身自洽。
+
+    没有这一步，手改过的报告或「采样半途卡死」的半程数据都能当完整证据通过：
+    gate 对 error_rate ↔ requests/successful 有一致性校验，硬件指标必须有同等待遇。
+    """
+    summary = report["summary"]
+    block = report.get("hardware")
+    claimed = {k: v for k, v in ((k, summary.get(k)) for k in _HW_FIELDS) if v is not None}
+    if block is None:
+        if claimed:
+            raise _ConfigError(
+                f"{label} summary claims hardware metrics {sorted(claimed)} without a 'hardware' block"
+            )
+        return
+    if not isinstance(block, dict):
+        raise _ConfigError(f"{label} 'hardware' must be an object or null")
+    samples = block.get("samples")
+    if isinstance(samples, bool) or not isinstance(samples, int) or samples < 0:
+        raise _ConfigError(f"{label} hardware.samples must be a non-negative integer, got {samples!r}")
+    for metric, key in _HW_FIELDS.items():
+        expected = block.get(key)
+        observed = summary.get(metric)
+        if expected is None and observed is None:
+            continue
+        for value in (expected, observed):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise _ConfigError(
+                    f"{label} {metric} does not match hardware.{key}: {observed!r} vs {expected!r}"
+                )
+        if abs(float(observed) - float(expected)) > 1e-6:
+            raise _ConfigError(
+                f"{label} {metric} ({observed!r}) disagrees with hardware.{key} ({expected!r})"
+            )
+
+
+def _hardware_fingerprint(report: dict, label: str) -> str:
+    """取可比较的硬件指纹；拿不到就 fail-closed（而不是当成同一块卡）。"""
+    config = report.get("config")
+    if not isinstance(config, dict):
+        raise _ConfigError(f"{label} report has no config block")
+    value = config.get("hardware")
+    if not isinstance(value, str) or value.strip() in MISSING_FINGERPRINTS:
+        raise _ConfigError(
+            f"{label} config.hardware is missing ({value!r}): "
+            "hardware metrics are only comparable on the same device"
+        )
+    return value
 
 
 def _insufficient_samples(summary: dict, path: str) -> str | None:
@@ -208,6 +259,7 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
     summary = candidate["summary"]
     try:
         _validate_summary(summary)
+        _check_hardware_evidence(candidate, "candidate")
     except _ConfigError as exc:
         return {"exit_code": 2, "checks": [], "reasons": [str(exc)]}
 
@@ -219,16 +271,19 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
             return {"exit_code": 2, "checks": [], "reasons": ["baseline report has no summary block"]}
         try:
             _validate_summary(base)
+            _check_hardware_evidence(baseline, "baseline")
         except _ConfigError as exc:
             return {"exit_code": 2, "checks": [], "reasons": [f"baseline: {exc}"]}
-        # 显存/利用率的相对比较只对同一块卡有意义：指纹缺失或不同 → 不可比
-        if any(name in HARDWARE_METRICS for name in policy["regressions"]):
-            cand_hw = (candidate.get("config") or {}).get("hardware")
-            base_hw = (baseline.get("config") or {}).get("hardware")
-            if not cand_hw or not base_hw:
-                return {"exit_code": 2, "checks": [], "reasons": [
-                    "hardware regression needs 'config.hardware' in both candidate and baseline; "
-                    f"got candidate={cand_hw!r} baseline={base_hw!r}"]}
+        # 显存/利用率的比较只对同一块卡有意义（绝对上限同理：512 MB 的增长上限
+        # 在 6 GB 卡与 24 GB 卡上不是同一件事）。指纹缺失/非法/不同 → 不可比。
+        hw_rules = [n for n in list(policy["regressions"]) + list(policy["limits"])
+                    if n in HARDWARE_METRICS]
+        if hw_rules:
+            try:
+                cand_hw = _hardware_fingerprint(candidate, "candidate")
+                base_hw = _hardware_fingerprint(baseline, "baseline")
+            except _ConfigError as exc:
+                return {"exit_code": 2, "checks": [], "reasons": [str(exc)]}
             if cand_hw != base_hw:
                 return {"exit_code": 2, "checks": [], "reasons": [
                     f"hardware differs ({cand_hw!r} vs {base_hw!r}): not comparable"]}

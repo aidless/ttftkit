@@ -61,7 +61,8 @@ def _hw(**over):
         "mem_total_mb": 24564.0, "mem_used_baseline_mb": 1024.0,
         "mem_used_peak_mb": 3072.0, "mem_used_delta_mb": 2048.0,
         "utilization_peak_pct": 91.0, "samples": 40, "interval_s": 0.25,
-        "sampler_errors": 0, "error": None, "mem_used_series_mb": [1024.0, 3072.0],
+        "sampler_errors": 0, "error": None, "truncated": False,
+        "mem_used_series_mb": [1024.0, 3072.0],
     }
     block.update(over)
     return block
@@ -91,3 +92,40 @@ def test_unsampled_run_says_so_instead_of_zeros():
 def test_invalid_hardware_block_raises_value_error():
     with pytest.raises(ValueError):
         markdown(_report(hardware=[1, 2, 3]))
+
+
+def test_dead_sampler_is_reported_as_sampling_failure_not_unsampled():
+    # R3：采样器在、但一次都没采到 —— 说成「未采样」会把坏掉的监控藏起来
+    dead = _hw(samples=0, mem_used_baseline_mb=None, mem_used_peak_mb=None,
+               mem_used_delta_mb=None, utilization_peak_pct=None, name=None, driver=None,
+               mem_total_mb=None, sampler_errors=7, error="OSError", mem_used_series_mb=[])
+    text = markdown(_report(hardware=dead))
+    assert "采样失败" in text
+    assert "7 次采样全部失败" in text
+    assert "OSError" in text
+    assert "未采样：本报告不含显存" not in text
+
+
+def test_single_sample_renders_no_delta_instead_of_zero():
+    # 一个样本算不出增长：渲染成「n/a（采样不足 2 次）」，不写 0.0 MB
+    text = markdown(_report(hardware=_hw(samples=1, mem_used_baseline_mb=1024.0,
+                                         mem_used_peak_mb=1024.0, mem_used_delta_mb=None)))
+    assert "采样不足 2 次" in text
+    assert "窗口内增长：0.0 MB" not in text
+
+
+def test_truncated_sampling_is_disclosed():
+    text = markdown(_report(hardware=_hw(truncated=True, sampler_errors=1,
+                                        error="SamplerBusyAtStop")))
+    assert "SamplerBusyAtStop" in text
+    assert "低报" in text
+
+
+def test_missing_utilization_has_no_stray_percent_sign():
+    text = markdown(_report(hardware=_hw(utilization_peak_pct=None)))
+    assert "n/a%" not in text
+
+
+def test_empty_hardware_object_is_an_error_not_unsampled():
+    with pytest.raises(ValueError):
+        markdown(_report(hardware={}))

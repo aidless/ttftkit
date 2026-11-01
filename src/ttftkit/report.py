@@ -76,31 +76,54 @@ def markdown(result: dict) -> str:
     hardware = result.get("hardware")
     if hardware is not None and not isinstance(hardware, dict):
         raise ValueError("report field 'hardware' must be an object or null")
+    if isinstance(hardware, dict) and not hardware:
+        raise ValueError("report field 'hardware' is an empty object")
+
+    def _mb(value) -> str:
+        return "n/a" if value is None else f"{_fmt(value)} MB"
+
     lines += ["## 硬件（GPU 采样）", ""]
-    if hardware:
+    if hardware is None:
+        lines += [
+            "未采样：本报告不含显存 / 利用率证据（`--gpu none`，或未探测到 nvidia-smi / rocm-smi）。",
+            "",
+        ]
+    elif not hardware.get("samples"):
+        # 采样器在、却一次都没采到：这是坏掉的监控，不是「没有硬件」，必须显式说出来。
+        lines += [
+            f"采样失败：采样器已探测到（`{hardware.get('source', '?')}`），"
+            f"但 {hardware.get('sampler_errors', 0)} 次采样全部失败"
+            f"（首个：`{hardware.get('error')}`）。本报告**没有**显存 / 利用率证据。",
+            "",
+        ]
+    else:
+        util = hardware.get("utilization_peak_pct")
+        util_text = "n/a" if util is None else f"{_fmt(util)}%"
+        delta = hardware.get("mem_used_delta_mb")
+        delta_text = "n/a（采样不足 2 次，算不出增长）" if delta is None else _mb(delta)
         lines += [
             f"- 来源：`{hardware.get('source', '?')}`，设备：{hardware.get('name', '?')}，"
             f"驱动：{hardware.get('driver', '?')}",
-            f"- 显存：起点 {_fmt(hardware.get('mem_used_baseline_mb'))} MB / "
-            f"峰值 {_fmt(hardware.get('mem_used_peak_mb'))} MB "
-            f"（总量 {_fmt(hardware.get('mem_total_mb'))} MB）",
-            f"- 窗口内增长：{_fmt(hardware.get('mem_used_delta_mb'))} MB，"
-            f"峰值利用率：{_fmt(hardware.get('utilization_peak_pct'))}%",
+            f"- 显存：起点 {_mb(hardware.get('mem_used_baseline_mb'))} / "
+            f"峰值 {_mb(hardware.get('mem_used_peak_mb'))} "
+            f"（总量 {_mb(hardware.get('mem_total_mb'))}）",
+            f"- 窗口内增长：{delta_text}，峰值利用率：{util_text}",
             f"- 采样 {hardware.get('samples', 0)} 次（间隔 {hardware.get('interval_s')} s），"
             f"采样器错误 {hardware.get('sampler_errors', 0)} 次",
             "",
         ]
+        if hardware.get("truncated"):
+            lines += [
+                "> 采样线程在 `stop()` 超时后仍在运行（`SamplerBusyAtStop`）："
+                "峰值与增长可能被**低报**，这里只覆盖已收上来的样本。",
+                "",
+            ]
         if hardware.get("sampler_errors"):
             lines += [
                 f"> 采样器曾失败 {hardware['sampler_errors']} 次（首个：`{hardware.get('error')}`）。"
                 "显存数字只覆盖采样成功的时刻，不能当作全程证据。",
                 "",
             ]
-    else:
-        lines += [
-            "未采样：本报告不含显存 / 利用率证据（`--gpu none`，或未探测到 nvidia-smi / rocm-smi）。",
-            "",
-        ]
     lines += [
         "## 延迟分布（单位：毫秒）",
         "",

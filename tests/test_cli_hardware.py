@@ -28,7 +28,8 @@ def test_gpu_none_writes_explicitly_unsampled_report(sse_base, tmp_path):
 def test_gpu_command_samples_a_real_subprocess(sse_base, tmp_path):
     out = tmp_path / "run.json"
     # 路径里有字面反斜杠（F:\deepseek），必须按 shell 规则引用，否则 shlex 会吃掉反斜杠
-    cmd = shlex.join([sys.executable, str(SCRIPT), "--leak-mb", "32"])
+    state = str(tmp_path / "fake-gpu.json")
+    cmd = shlex.join([sys.executable, str(SCRIPT), "--leak-mb", "32", "--session", "s1", "--state", state])
     proc = _run(sse_base, out, "--gpu", "command", "--gpu-command", cmd,
                 "--sample-interval", "0.02")
     assert proc.returncode == 0, proc.stderr
