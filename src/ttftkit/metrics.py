@@ -77,10 +77,12 @@ def summarize(
     *,
     slo_ttft_ms: float | None = None,
     slo_tpot_ms: float | None = None,
+    hardware: dict | None = None,
 ) -> dict:
     """把一组请求记录汇总成报告里的 `summary` 段。
 
     seconds: 测量窗口的墙钟时长（秒），必须有限且 > 0。
+    hardware: 采集到的硬件块（v0.2+）；未采样时传 None，对应指标一律为 null 而非 0。
     """
     if not isinstance(seconds, (int, float)) or isinstance(seconds, bool):
         raise ValueError(f"measurement window must be a number, got {seconds!r}")
@@ -117,8 +119,23 @@ def summarize(
         "decode_ms": distribution(r.decode_ms for r in ok_records),
         "chunk_gap_ms": distribution(gap for r in ok_records for gap in r.chunk_intervals_ms),
         "degradation_ratio": _degradation_ratio(ok_records),
+        "mem_used_peak_mb": _hw_metric(hardware, "mem_used_peak_mb"),
+        "mem_used_delta_mb": _hw_metric(hardware, "mem_used_delta_mb"),
+        "gpu_util_peak_pct": _hw_metric(hardware, "utilization_peak_pct"),
         "errors": _error_counts(records),
     }
+
+
+def _hw_metric(hardware: dict | None, key: str) -> float | None:
+    """硬件指标缺席时必须是 null：0 会被下游误读成「测得为 0」。"""
+    if not isinstance(hardware, dict):
+        return None
+    value = hardware.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value):
+        return None
+    return float(value)
 
 
 def _meets(record: RequestRecord, slo_ttft_ms: float | None, slo_tpot_ms: float | None) -> bool:

@@ -21,7 +21,12 @@ SCALAR_METRICS = (
     "token_usage_coverage",
     "goodput_per_s",
     "degradation_ratio",
+    "mem_used_peak_mb",
+    "mem_used_delta_mb",
+    "gpu_util_peak_pct",
 )
+# 硬件指标的相对比较只在同一块卡上有意义：显存总量不同 = 不可比
+HARDWARE_METRICS = frozenset({"mem_used_peak_mb", "mem_used_delta_mb", "gpu_util_peak_pct"})
 KNOWN_METRICS = frozenset(
     [f"{m}.{f}" for m in DIST_METRICS for f in DIST_FIELDS] + list(SCALAR_METRICS)
 )
@@ -149,6 +154,14 @@ def _validate_summary(summary: dict) -> None:
             raise _ConfigError(
                 f"'{metric}.count' ({count}) exceeds successful_requests ({successful})"
             )
+    for metric in HARDWARE_METRICS:
+        node = summary.get(metric)
+        if node is None:
+            continue  # 未采样（schema 允许）——规则用到它时由上层判「无可用值」
+        if isinstance(node, bool) or not isinstance(node, (int, float)):
+            raise _ConfigError(f"'{metric}' must be a number or null, got {node!r}")
+        if not math.isfinite(node) or node < 0:
+            raise _ConfigError(f"'{metric}' must be finite and non-negative, got {node!r}")
 
 
 def _insufficient_samples(summary: dict, path: str) -> str | None:
@@ -208,6 +221,17 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
             _validate_summary(base)
         except _ConfigError as exc:
             return {"exit_code": 2, "checks": [], "reasons": [f"baseline: {exc}"]}
+        # 显存/利用率的相对比较只对同一块卡有意义：指纹缺失或不同 → 不可比
+        if any(name in HARDWARE_METRICS for name in policy["regressions"]):
+            cand_hw = (candidate.get("config") or {}).get("hardware")
+            base_hw = (baseline.get("config") or {}).get("hardware")
+            if not cand_hw or not base_hw:
+                return {"exit_code": 2, "checks": [], "reasons": [
+                    "hardware regression needs 'config.hardware' in both candidate and baseline; "
+                    f"got candidate={cand_hw!r} baseline={base_hw!r}"]}
+            if cand_hw != base_hw:
+                return {"exit_code": 2, "checks": [], "reasons": [
+                    f"hardware differs ({cand_hw!r} vs {base_hw!r}): not comparable"]}
 
     failed = summary["requests"] - summary["successful_requests"]
     error_rate = summary["error_rate"]

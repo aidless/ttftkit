@@ -72,6 +72,36 @@ def markdown(result: dict) -> str:
           if summary.get("goodput_per_s") is not None else []),
         f"| 退化比（后1/4 ÷ 前1/4 延迟） | {_fmt(summary.get('degradation_ratio'), 3)} |",
         "",
+    ]
+    hardware = result.get("hardware")
+    if hardware is not None and not isinstance(hardware, dict):
+        raise ValueError("report field 'hardware' must be an object or null")
+    lines += ["## 硬件（GPU 采样）", ""]
+    if hardware:
+        lines += [
+            f"- 来源：`{hardware.get('source', '?')}`，设备：{hardware.get('name', '?')}，"
+            f"驱动：{hardware.get('driver', '?')}",
+            f"- 显存：起点 {_fmt(hardware.get('mem_used_baseline_mb'))} MB / "
+            f"峰值 {_fmt(hardware.get('mem_used_peak_mb'))} MB "
+            f"（总量 {_fmt(hardware.get('mem_total_mb'))} MB）",
+            f"- 窗口内增长：{_fmt(hardware.get('mem_used_delta_mb'))} MB，"
+            f"峰值利用率：{_fmt(hardware.get('utilization_peak_pct'))}%",
+            f"- 采样 {hardware.get('samples', 0)} 次（间隔 {hardware.get('interval_s')} s），"
+            f"采样器错误 {hardware.get('sampler_errors', 0)} 次",
+            "",
+        ]
+        if hardware.get("sampler_errors"):
+            lines += [
+                f"> 采样器曾失败 {hardware['sampler_errors']} 次（首个：`{hardware.get('error')}`）。"
+                "显存数字只覆盖采样成功的时刻，不能当作全程证据。",
+                "",
+            ]
+    else:
+        lines += [
+            "未采样：本报告不含显存 / 利用率证据（`--gpu none`，或未探测到 nvidia-smi / rocm-smi）。",
+            "",
+        ]
+    lines += [
         "## 延迟分布（单位：毫秒）",
         "",
         "| 指标 | 均值 | p50 | p95 | p99 | 样本数 |",

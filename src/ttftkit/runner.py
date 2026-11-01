@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from .client import measure_request
+from .hardware import Collector, fingerprint
 from .metrics import summarize
 from .models import RequestRecord
 
@@ -19,7 +20,8 @@ class BenchmarkFailed(Exception):
 
 async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
                         max_tokens=32, warmup=0, timeout_s=60, profile='unspecified', api_key=None,
-                        slo_ttft_ms=None, slo_tpot_ms=None):
+                        slo_ttft_ms=None, slo_tpot_ms=None, sampler=None,
+                        sample_interval_s=0.25):
     for key, value in [('requests', requests), ('concurrency', concurrency), ('max_tokens', max_tokens)]:
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise ValueError(f'{key} must be a positive integer')
@@ -66,14 +68,21 @@ async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
                                         error=f'internal error: {type(exc).__name__}')
                 records.append(rec)
 
+        collector = Collector(sampler, interval_s=sample_interval_s) if sampler is not None else None
+        if collector is not None:
+            collector.start()  # 先采一次窗口起点，再开线程
         start = time.perf_counter()
         await asyncio.gather(*(worker() for _ in range(workers)))
         duration = time.perf_counter() - start
+        hardware_block = collector.stop() if collector is not None else None
     records.sort(key=lambda r: r.started_at)
     config = {'protocol': 'openai-sse-v1', 'model': model, 'concurrency': concurrency,
               'max_tokens': max_tokens, 'requests': requests, 'warmup': warmup,
               'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(),
-              'profile': profile, 'temperature': 0, 'timeout_s': timeout_s}
+              'profile': profile, 'temperature': 0, 'timeout_s': timeout_s,
+              'hardware': fingerprint(hardware_block)}
     return {'schema_version': 1, 'config': config, 'duration_s': duration,
             'records': [asdict(r) for r in records],
-            'summary': summarize(records, duration, slo_ttft_ms=slo_ttft_ms, slo_tpot_ms=slo_tpot_ms)}
+            'hardware': hardware_block,
+            'summary': summarize(records, duration, slo_ttft_ms=slo_ttft_ms,
+                                 slo_tpot_ms=slo_tpot_ms, hardware=hardware_block)}

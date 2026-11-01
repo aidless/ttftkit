@@ -135,6 +135,88 @@ CASES = [
         ],
         "tests/test_gate_failclosed.py::test_baseline_zero_count_with_quantile_is_configuration_error",
     ),
+    (
+        "M9 未采样必须在报告里显式声明（不是静默省略）",
+        [
+            ("src/ttftkit/report.py",
+             """    hardware = result.get("hardware")
+    if hardware is not None and not isinstance(hardware, dict):
+        raise ValueError("report field 'hardware' must be an object or null")
+""",
+             "    hardware = None\n"),
+        ],
+        "tests/test_report.py::test_hardware_block_renders_baseline_peak_and_delta "
+        "tests/test_report.py::test_sampler_errors_are_disclosed_not_hidden",
+    ),
+    (
+        "M10 硬件指标缺席必须是 null（不是 0）",
+        [
+            ("src/ttftkit/metrics.py",
+             """    if not isinstance(hardware, dict):
+        return None
+    value = hardware.get(key)""",
+             """    if not isinstance(hardware, dict):
+        return 0.0
+    value = hardware.get(key)"""),
+        ],
+        "tests/test_runner_hardware.py::test_run_without_sampler_has_no_hardware_evidence",
+    ),
+    (
+        "M11 不同硬件的显存回归不可比（exit 2）",
+        [
+            ("src/ttftkit/gate.py",
+             """        # 显存/利用率的相对比较只对同一块卡有意义：指纹缺失或不同 → 不可比
+        if any(name in HARDWARE_METRICS for name in policy["regressions"]):
+            cand_hw = (candidate.get("config") or {}).get("hardware")
+            base_hw = (baseline.get("config") or {}).get("hardware")
+            if not cand_hw or not base_hw:
+                return {"exit_code": 2, "checks": [], "reasons": [
+                    "hardware regression needs 'config.hardware' in both candidate and baseline; "
+                    f"got candidate={cand_hw!r} baseline={base_hw!r}"]}
+            if cand_hw != base_hw:
+                return {"exit_code": 2, "checks": [], "reasons": [
+                    f"hardware differs ({cand_hw!r} vs {base_hw!r}): not comparable"]}
+""",
+             ""),
+        ],
+        "tests/test_gate_hardware.py::test_different_hardware_is_not_comparable "
+        "tests/test_gate_hardware.py::test_report_without_hardware_fingerprint_is_not_comparable",
+    ),
+    (
+        "M12 硬件标量类型/符号校验（坏报告 exit 2）",
+        [
+            ("src/ttftkit/gate.py",
+             """    for metric in HARDWARE_METRICS:
+        node = summary.get(metric)
+        if node is None:
+            continue  # 未采样（schema 允许）——规则用到它时由上层判「无可用值」
+        if isinstance(node, bool) or not isinstance(node, (int, float)):
+            raise _ConfigError(f"'{metric}' must be a number or null, got {node!r}")
+        if not math.isfinite(node) or node < 0:
+            raise _ConfigError(f"'{metric}' must be finite and non-negative, got {node!r}")
+""",
+             ""),
+        ],
+        "tests/test_gate_hardware.py::test_invalid_hardware_scalar_is_configuration_error",
+    ),
+    (
+        "M13 影子门禁不阻断（判得出问题但不返回非零）",
+        [
+            ("scripts/shadow_gate.py",
+             '    print("shadow-gate: 影子模式，不阻断（--strict 才会返回非零）")\n    return 0\n',
+             "    return code\n"),
+        ],
+        "tests/test_shadow_gate.py::test_failing_report_does_not_block_in_shadow_mode",
+    ),
+    (
+        "M14 不合法输入必须报「不可比」而不是 PASS",
+        [
+            ("scripts/shadow_gate.py",
+             'label = {0: "PASS", 1: "FAIL", 2: "不合法/不可比"}.get(code, str(code))',
+             'label = "PASS"'),
+        ],
+        "tests/test_shadow_gate.py::test_invalid_report_is_reported_as_not_comparable_not_silently_ok",
+    ),
 ]
 
 
@@ -144,6 +226,7 @@ def run_case(name, mutations, selector):
         dst = tmp / "pkg"
         shutil.copytree(ROOT / "src", dst / "src")
         shutil.copytree(ROOT / "tests", dst / "tests")
+        shutil.copytree(ROOT / "scripts", dst / "scripts")
         shutil.copy(ROOT / "pyproject.toml", dst / "pyproject.toml")
         for rel, old, new in mutations:
             p = dst / rel

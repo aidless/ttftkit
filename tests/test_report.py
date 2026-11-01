@@ -53,3 +53,41 @@ def test_goodput_row_only_when_slo_provided():
 def test_non_object_summary_raises_value_error():
     with pytest.raises(ValueError):
         markdown({"config": {}, "summary": [1, 2, 3], "records": []})
+
+
+def _hw(**over):
+    block = {
+        "source": "nvidia-smi", "name": "NVIDIA RTX 4090", "driver": "550.54",
+        "mem_total_mb": 24564.0, "mem_used_baseline_mb": 1024.0,
+        "mem_used_peak_mb": 3072.0, "mem_used_delta_mb": 2048.0,
+        "utilization_peak_pct": 91.0, "samples": 40, "interval_s": 0.25,
+        "sampler_errors": 0, "error": None, "mem_used_series_mb": [1024.0, 3072.0],
+    }
+    block.update(over)
+    return block
+
+
+def test_hardware_block_renders_baseline_peak_and_delta():
+    text = markdown(_report(hardware=_hw()))
+    assert "## 硬件（GPU 采样）" in text
+    assert "NVIDIA RTX 4090" in text
+    assert "1,024.0 MB / 峰值 3,072.0 MB" in text
+    assert "窗口内增长：2,048.0 MB" in text
+
+
+def test_sampler_errors_are_disclosed_not_hidden():
+    text = markdown(_report(hardware=_hw(sampler_errors=3, error="OSError")))
+    assert "采样器曾失败 3 次" in text
+    assert "不能当作全程证据" in text
+
+
+def test_unsampled_run_says_so_instead_of_zeros():
+    # 未采样 → 明确写「未采样」，绝不渲染成 0 MB（0 会被读成「测到没占显存」）
+    text = markdown(_report(hardware=None))
+    assert "未采样：本报告不含显存" in text
+    assert "mem_used_peak_mb" not in text
+
+
+def test_invalid_hardware_block_raises_value_error():
+    with pytest.raises(ValueError):
+        markdown(_report(hardware=[1, 2, 3]))

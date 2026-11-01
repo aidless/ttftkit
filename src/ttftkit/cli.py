@@ -4,15 +4,32 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import os
+import shlex
 import sys
 from pathlib import Path
 
 from .gate import evaluate
+from .hardware import command_sampler, detect_sampler
 from .report import markdown, write
 from .runner import BenchmarkFailed, run_benchmark
 
 DEFAULT_PROMPT = "Explain in one paragraph why KV cache memory grows with context length."
+
+
+def _sampler_for(args):
+    """--gpu 三态：none 明确不采样；command 用给定命令；auto 探测本机工具。"""
+    if args.gpu == "none":
+        return None
+    if args.gpu == "command":
+        if not args.gpu_command:
+            raise ValueError("--gpu command requires --gpu-command")
+        argv = shlex.split(args.gpu_command)
+        if not argv:
+            raise ValueError("--gpu-command must not be empty")
+        return command_sampler(argv)
+    return detect_sampler()
 
 
 def _load(path: str | Path) -> dict:
@@ -23,6 +40,9 @@ def _load(path: str | Path) -> dict:
 
 
 def cmd_run(args) -> int:
+    if not math.isfinite(args.sample_interval) or args.sample_interval <= 0:
+        raise ValueError(f"--sample-interval must be finite and positive, got {args.sample_interval!r}")
+    sampler = _sampler_for(args)
     result = asyncio.run(
         run_benchmark(
             endpoint=args.endpoint,
@@ -37,6 +57,8 @@ def cmd_run(args) -> int:
             api_key=args.api_key,
             slo_ttft_ms=args.slo_ttft,
             slo_tpot_ms=args.slo_tpot,
+            sampler=sampler,
+            sample_interval_s=args.sample_interval,
         )
     )
     json_path, md_path = write(result, args.output)
@@ -97,6 +119,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--slo-tpot", type=float, default=None, help="TPOT SLO(ms), 给出后算 goodput")
     run.add_argument("--output", default="results/run.json")
     run.add_argument("--api-key", default=os.environ.get("TTFTKIT_API_KEY"))
+    run.add_argument("--gpu", choices=("auto", "none", "command"), default="auto",
+                     help="显存采样：auto=探测 nvidia-smi/rocm-smi，none=不采样，command=用 --gpu-command")
+    run.add_argument("--gpu-command", default=None,
+                     help="自定义采样命令（须输出 nvidia-smi CSV 格式），配合 --gpu command")
+    run.add_argument("--sample-interval", type=float, default=0.25,
+                     help="采样间隔（秒），默认 0.25")
     run.set_defaults(func=cmd_run)
 
     gate = sub.add_parser("gate", help="按策略判定一份报告能否放行")

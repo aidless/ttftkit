@@ -1,0 +1,14 @@
+{
+  "limits": {
+    "error_rate": 0,
+    "ttft_ms.p95": 150,
+    "tpot_ms.p95": 60,
+    "requests_per_s": 1.5,
+    "output_tokens_per_s": 25
+  },
+  "regressions": {
+    "ttft_ms.p50": 50,
+    "tpot_ms.mean": 50,
+    "output_tokens_per_s": 60
+  }
+}
