@@ -11,7 +11,7 @@ pip install -e .
 ttftkit run --endpoint http://127.0.0.1:8000/v1/chat/completions \
     --model Qwen/Qwen2.5-7B-Instruct --requests 32 --concurrency 8 \
     --max-tokens 128 --profile rtx4090-vllm-0.6.3 --output results/run.json
-ttftkit gate results/run.json --policy configs/policy.json --baseline results/baseline.json
+ttftkit gate results/run.json --policy configs/policy.json --baseline baselines/main.json
 ```
 
 ## 为什么不用现成的
