@@ -23,6 +23,14 @@ SCENARIOS: dict[str, list[tuple[float, bytes]] | None] = {
         (0.00, b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'),
         (0.00, b"data: [DONE]\n\n"),
     ],
+    # 类型合法、但 token 数与内容块数对不上。块数不能当 token 数用，所以客户端照单全收。
+    "lying-usage": [
+        (0.02, b'data: {"choices":[{"delta":{"content":"a"}}]}\n\n'),
+        (0.02, b'data: {"choices":[{"delta":{"content":"b"}}]}\n\n'),
+        (0.00, b'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+               b'"usage":{"prompt_tokens":1,"completion_tokens":10000}}\n\n'),
+        (0.00, b"data: [DONE]\n\n"),
+    ],
     "bad-json": [
         (0.02, b'data: {"choices":[{"delta":{"content":"a"}}]}\n\n'),
         (0.02, b"data: {oops\n\n"),

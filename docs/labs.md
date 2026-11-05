@@ -34,7 +34,7 @@ python3 -m ttftkit run --endpoint http://127.0.0.1:11434/v1/chat/completions \
 
 对照阅读：`docs/metrics.md`（口径逐条定义）。
 
-## Lab 2 — 给假服务端注入 12 种坏行为，看客户端会不会静静算错
+## Lab 2 — 给假服务端注入 13 种坏行为，看客户端会不会静静算错
 
 | 项 | 内容 |
 | --- | --- |
@@ -48,9 +48,10 @@ PYTHONPATH=src python3 -m pytest -q tests/test_client_hardening.py -v
 
 场景都在 `tests/conftest.py` 的 `SCENARIOS` 里：
 `bad-json`（块本身不是 JSON）、`bad-chunk`（非法分块头）、`cut`（流中断）、`empty`（无 content 块）、
-`no-usage`（缺 usage）、`dict-choices`（`choices` 是对象不是数组）、`bad-content`（content 是数字）、
+`no-usage`（缺 usage）、`lying-usage`（`completion_tokens` 报成 10000，但只有 2 个内容块）、
+`dict-choices`（`choices` 是对象不是数组）、`bad-content`（content 是数字）、
 `secret-usage` / `secret-finish`（服务端把秘密塞进 usage/finish_reason）、`trickle` / `trickle-nonl`（慢滴流）、
-`http500`（服务端直接 500）。
+`http500`（服务端直接 500）。`lying-usage` 仍会被记成成功请求，这是开着的洞，见 `docs/FAILURE_MODES.md`。
 
 **通过判据**：能说出每种坏输入被映射成什么——失败请求（`ok=false` + 固定文案）、还是整体不可信
 （如缺 usage → 吞吐置 `null` 并报 `token_usage_coverage < 1`），以及为什么**不能**把服务端原始字节
@@ -111,7 +112,7 @@ python3 -m pytest -q
 
 **通过判据**：能解释 `red_check.py` 为什么存在——它把每个修复「回退」到修复前，跑对应测试，
 测试必须变红。只有这样才能证明测试测的是机制而不是装饰；它同时是「门必须能失败」的反证。
-参考项目：`github-action-benchmark`（1,269★）——把 benchmark 结果写进 CI 并做阈值比较。
+参考项目：`github-action-benchmark`。星数是 [`ecosystem.md`](ecosystem.md) 在 2026-10-31 的快照，不是 ttftkit 的采用量。
 
 ## Lab 6 — 服务端指标 vs 客户端指标：同一件事的两个数
 
@@ -126,8 +127,8 @@ python3 -m pytest -q
 
 **通过判据**：写出两张数表并解释差值来源——客户端 TTFT 含 DNS/TCP/TLS/排队/网络往返，
 服务端直方图只含引擎内部时间；因此**同一次请求客户端一定 ≥ 服务端**（除非时钟/口径不同）。
-参考项目：`vllm-project/vllm`（95,971★）的 benchmark/ 目录、`aiperf`（838★）、
-`neuralmagic/guidellm`→`vllm-project/guidellm`（1,735★，注意已迁移）。
+参考项目：`vllm-project/vllm` 的 benchmark/ 目录、`aiperf`、
+`neuralmagic/guidellm`→`vllm-project/guidellm`（注意已迁移）。星数见 [`ecosystem.md`](ecosystem.md) 文首的快照日期，不要当成今天的数字，更不要当成 ttftkit 的 star。
 
 > ⚠️ 指标名会随版本变，必须以目标版本 `/metrics` 的实际输出为准，不要照抄别处的名字。
 
@@ -149,8 +150,8 @@ PYTHONPATH=src python3 -m pytest -q tests/test_hardware.py tests/test_runner_har
 
 **通过判据**：能解释 `delta = peak − baseline` 为什么比「看末值」更能抓住阶梯式泄漏；
 能说出 `null`（没采样）与 `0`（采到 0）为什么必须区分。
-真卡路径：`--gpu auto` 走 nvidia-smi；对照项目 `NVIDIA/DCGM` + `dcgm-exporter`（1,920★，
-字段名以它的 README 为准，常见形如 `DCGM_FI_DEV_FB_*`）。
+真卡路径：`--gpu auto` 走 nvidia-smi；对照项目 `NVIDIA/DCGM` + `dcgm-exporter`
+（字段名以它的 README 为准，常见形如 `DCGM_FI_DEV_FB_*`）。星数同样只在 `docs/ecosystem.md` 的快照里。
 
 ## Lab 8 — 缺陷档案：从一次「静默 fail-open」写出 RCA
 

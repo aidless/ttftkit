@@ -47,6 +47,7 @@ class BoomSampler:
                                   mem_used_mb=100.0, utilization_pct=1.0)
 
 
+# 手写夹具字符串，不是从某台机器抓下来的 nvidia-smi 日志。
 NVIDIA_CSV = "NVIDIA GeForce RTX 3060 Laptop GPU, 580.95.05, 6144, 512, 37\n"
 
 

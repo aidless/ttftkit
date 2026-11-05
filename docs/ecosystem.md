@@ -6,7 +6,7 @@
 > - **交叉校验**：另用 `https://github.com/<owner>/<repo>` 页面内嵌 JSON（`stargazerCount`、`license.spdxId`）独立取数一遍，vLLM 两通道一致（HTML `stargazerCount=95970` 与 API `stargazers_count` 同量级）；两轮取数相隔约 20 分钟，star 数的微小漂移（如 vLLM 95,970→95,971）属正常增长，表中以最终一次 API 值为准。
 > - **命令与指标定义**：取自对应仓库的源码 / README 原文（每条给出文件与行号），非凭记忆。
 >
-> 本文档只做"可核实的存在性 + 定位 + 能学到什么"，不复制这些项目的性能结论。
+> 本文档只做"可核实的存在性 + 定位 + 能学到什么"，不复制这些项目的性能结论。表里的 star 是这些上游仓库的快照，不是 ttftkit 的采用量、下载量或依赖数。ttftkit 自己没有 PyPI 发布。
 
 ---
 

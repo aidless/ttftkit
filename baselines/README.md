@@ -5,6 +5,8 @@
 
 ## 采集条件（可复现）
 
+机器型号、内存、Ollama 版本和下面的日期是**作者记录**，不在 JSON 里，CI 也不会重跑 Ollama 来复核。JSON 里能直接看到的是 `config.model`、`config.profile`、`config.hardware`（这 5 份都是 `"none"`）。表中每个数字由 `tests/test_doc_drift.py` 从 `run1.json`–`run5.json` 重算。
+
 | 项 | 值 |
 | --- | --- |
 | 机器 | AMD Ryzen 7 5800H，16 逻辑核，14 GiB RAM，**无可用 GPU**（`nvidia-smi`/`rocm-smi` 均不存在） |

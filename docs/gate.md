@@ -96,3 +96,9 @@ protocol / model / concurrency / max_tokens / requests / prompt_sha256 / profile
 - **只比 p50**：p50 稳定但 p99 爆炸是典型退化（排队、GC、显存碎片）。
 - **跨机器比绝对值**：不同 GPU/驱动/CPU 的数字放一起比较，结论不可用。
 - **基线永不过期**：三个月前的基线代表的是另一个软件栈。
+
+## 8. 退出码 0 仍然可以是假绿
+
+`regressions` 才会拿候选的数字和基线的数字比。策略里只有 `limits` 时，`--baseline` 不参与数值比较（硬件规则另计指纹）。`configs/policy.json` 就是这种文件：里面的 1000 ms / 100 ms **没有**从 `baselines/` 标定过。
+
+另外三件退出码 0 证明不了的事：服务端把 `completion_tokens` 报大、报告里没有墙钟、`summary` 不是从 `records` 重算的。写在 [`FAILURE_MODES.md`](FAILURE_MODES.md)。CI 的 `shadow-gate` 作业不带 `--strict`，策略 FAIL 时那个作业仍然可以绿。

@@ -36,7 +36,7 @@ def main() -> int:
 
     state = Path(args.state) if args.state else _state_path()
     used = args.baseline_mb
-    # 状态落在临时目录且默认不清理：不带 session 就会从上一轮的占用量接着涨（实测首调 3968 MB）。
+    # 状态落在临时目录且默认不清理：不带 session 会从上一轮的占用量接着涨。
     if args.leak_mb:
         try:
             saved = json.loads(state.read_text(encoding="utf-8"))

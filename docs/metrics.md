@@ -102,7 +102,8 @@ error_rate = 失败请求数 / 全部请求数
 
 ## 8. 不声称的东西
 
-- 不声称测到了 GPU 计算利用率（v0.1 没有 GPU 采样）。
-- 不声称 TPOT 等于逐 token ITL（块内 token 时间不可拆）。
-- 不声称闭环并发等于线上流量（线上是到达率驱动，ttftkit 是固定 worker 闭环）。
-- 不声称跨机器、跨驱动版本的绝对值可比（只做同环境回归）。
+- 不声称 TPOT 等于逐 token ITL。块内 token 时间拆不开；`completion_tokens` 是服务端说的，报大时 TPOT 会变好看。见 [`FAILURE_MODES.md`](FAILURE_MODES.md)。
+- 不声称报告里有墙钟。`started_at` 是 `perf_counter`。
+- 不声称闭环并发等于线上流量。线上是到达率驱动，ttftkit 是固定 worker 闭环。
+- 不声称跨机器、跨驱动版本的绝对值可比。只做同环境回归，而且 `profile` 是调用者自己填的。
+- v0.2 能轮询显存和 GPU 利用率，但本仓库没有真卡读数。轮询也不是 profiler，间隔里的尖峰可以不出现。

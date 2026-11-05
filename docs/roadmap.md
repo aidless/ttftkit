@@ -8,6 +8,8 @@ v0.1 只做「客户端测量 + 回归门禁」，并且诚实地不包含 GPU �
 summary 里三个标量（`mem_used_peak_mb` / `mem_used_delta_mb` / `gpu_util_peak_pct`），
 以便门禁直接按标量规则判——对象内嵌的嵌套字段在策略里既要拼路径又难做可比性检查。
 
+下面只说明字段形状。设备名和数字与 `tests/test_hardware.py` 的手写夹具 `NVIDIA_CSV` 相同，不是一次 nvidia-smi 实测，不能当性能或硬件证据。
+
 ```json
 "hardware": {"source": "nvidia-smi", "name": "NVIDIA GeForce RTX 3060 Laptop GPU",
              "driver": "580.95.05", "mem_total_mb": 6144,
@@ -47,7 +49,7 @@ summary 里三个标量（`mem_used_peak_mb` / `mem_used_delta_mb` / `gpu_util_p
 
 ## 在云 GPU 上跑（本机没有 NVIDIA 设备）
 
-本机是 Ryzen 5800H + 无 NVIDIA 用户态库，所以 GPU 相关能力**无法在本机验证**。推荐路径：
+作者当时的机器记录是 Ryzen 5800H、没有 NVIDIA 用户态库（不在 JSON 里，CI 也不验证）。那些基线因此没有真卡读数。要补真卡数字，需要另一台机器：
 
 ```bash
 # 云 GPU（AMD 实例 / 阿里云 ECS / Kaggle 均可，重点是能起 vLLM）
