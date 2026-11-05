@@ -1,5 +1,7 @@
 # ttftkit v0.1 设计与执行计划
 
+> 本文是 v0.1 的执行计划，保留作历史记录。当前行为以 README、`docs/metrics.md`、`docs/gate.md`、`docs/FAILURE_MODES.md` 和 CHANGELOG 为准。文中「此版本不宣称 GPU 采样已经实现」说的是 v0.1 的范围；v0.2 起有采样代码，但仓库里仍然没有真卡读数。
+
 目标：为自有 OpenAI 兼容推理服务建立可复算的性能回归门禁，作为推理测试岗位的学习项目。技术栈为 Python、asyncio、httpx、pytest、GitHub Actions。原始请求记录与配置保存在 JSON，Markdown 报告由同一记录生成。
 
 ## 测量契约

@@ -2,6 +2,16 @@
 
 格式按 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号按语义化版本。
 
+## [Unreleased]
+
+文档与计数，没有改测量公式或门禁判定。
+
+- README 把问题收成三句话，分开离线假 SSE 与在线端点，并标明 OBSERVED / inferred。
+- 新增 `docs/FAILURE_MODES.md`：假绿、没有墙钟、服务端把 `usage` 报大。这三处仍是开着的洞，测试只锁定现状。
+- `tests/test_doc_drift.py` 用源码和 JSON 复核 README 计数、CI 形状、基线表和 smoke 数字。
+- 去掉一处不可复现的本机显存注释；假 GPU 状态文件改按 `tempfile.gettempdir()` 描述，不再写成固定的 `/tmp` 路径。
+- `docs/defect-triage.md` 不再声称存在 `defects/` 档案。DEF-0001 标明是编的格式样例。
+
 ## [0.2.1] - 2026-11-01
 
 第二轮独立审阅（N4–N8）后的门禁加固。全部是 **fail-open** 方向的问题：报告能被改得比真实情况更好看。
