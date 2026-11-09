@@ -1,5 +1,7 @@
 # ttftkit
 
+[![CI](https://github.com/aidless/ttftkit/actions/workflows/ci.yml/badge.svg)](https://github.com/aidless/ttftkit/actions/workflows/ci.yml)
+
 对 OpenAI 兼容推理端点做**可回归的性能测量**：TTFT / TPOT / 吞吐 / 稳定性 → JSON + Markdown 报告 → **发布门禁**（退出码 0/1/2，可直接接 CI）。
 
 压测器不缺，缺的是「这次比上次慢了多少、慢到什么程度不许发」的**准入判定**。ttftkit 只做这件事，并且把每个数字的口径写在代码和文档里。
