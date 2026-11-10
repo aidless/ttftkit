@@ -9,7 +9,10 @@
 v0.2 加了两块：**GPU 显存/利用率采样**（`--gpu auto|none|command`，验收标准是「注入已知泄漏必须看得见单调上涨」）与**影子门禁**（先在 CI 里只留读数、不拦人，观察误报后再收紧）。想按 JD 一条条练，见 [`docs/labs.md`](docs/labs.md)。
 
 ```bash
-pip install -e .
+# 从源码安装（PyPI 尚未上架）
+pip install git+https://github.com/aidless/ttftkit.git
+# 或装预构建 wheel：
+pip install https://github.com/aidless/ttftkit/releases/download/v0.2.1/ttftkit-0.2.1-py3-none-any.whl
 ttftkit run --endpoint http://127.0.0.1:8000/v1/chat/completions \
     --model Qwen/Qwen2.5-7B-Instruct --requests 32 --concurrency 8 \
     --max-tokens 128 --profile rtx4090-vllm-0.6.3 --output results/run.json
