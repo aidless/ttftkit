@@ -10,6 +10,8 @@ results/*
 !results/smoke-ollama.json
 !results/smoke-ollama.md
 !results/README.md
+!results/invariance-2026-11-10/
+!results/invariance-2026-11-10/**
 .env
 .env.*
 !.env.example

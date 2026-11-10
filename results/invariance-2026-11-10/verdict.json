@@ -1,0 +1,30 @@
+{
+ "exit_code": 0,
+ "checks": [
+  {
+   "rule": "invariance",
+   "kind": "invariance",
+   "status": "PASS",
+   "observed": "8 outputs byte-identical to baseline",
+   "threshold": "0 differing outputs",
+   "reason": ""
+  },
+  {
+   "metric": "ttft_ms.p99",
+   "kind": "limit",
+   "status": "PASS",
+   "observed": 170.04824897274375,
+   "threshold": 2000.0,
+   "reason": ""
+  },
+  {
+   "metric": "tpot_ms.p99",
+   "kind": "limit",
+   "status": "PASS",
+   "observed": 40.25745144583684,
+   "threshold": 200.0,
+   "reason": ""
+  }
+ ],
+ "reasons": []
+}
