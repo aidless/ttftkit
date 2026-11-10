@@ -1,0 +1,32 @@
+{
+ "exit_code": 1,
+ "checks": [
+  {
+   "rule": "invariance",
+   "kind": "invariance",
+   "status": "FAIL",
+   "observed": "1/8 outputs differ",
+   "threshold": "0 differing outputs",
+   "reason": "output[2] differs from baseline (batch changed the output)"
+  },
+  {
+   "metric": "ttft_ms.p99",
+   "kind": "limit",
+   "status": "PASS",
+   "observed": 249.2940871923929,
+   "threshold": 2000.0,
+   "reason": ""
+  },
+  {
+   "metric": "tpot_ms.p99",
+   "kind": "limit",
+   "status": "PASS",
+   "observed": 38.70901881094278,
+   "threshold": 200.0,
+   "reason": ""
+  }
+ ],
+ "reasons": [
+  "output[2] differs from baseline (batch changed the output)"
+ ]
+}

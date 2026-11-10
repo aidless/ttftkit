@@ -62,6 +62,8 @@ ttftkit 刻意做小：**只测一个端点、只做闭环并发、只输出可�
 > **实弹判决（2026-11-10）**：RTX 3060 6GB / vLLM 0.33.0 / Qwen3-4B-AWQ，c=1 与 c=16 的 8/8 输出逐字节一致（贪心解码口径），闸 PASS。判决书与原始报告见 [results/invariance-2026-11-10/](results/invariance-2026-11-10/verdict.md)，复现脚本 [scripts/invariance_run.py](scripts/invariance_run.py)。
 
 > **采样解码支持（v0.3.0 后）**：`run` 新增 `--temperature/--top-p/--seed`（默认 temperature=0 贪心，与历史行为一致）。采样参数进报告 `config`，gate 的可比性检查会把「不同采样参数」的报告判为不可比——不同解码路径的报告放一起比延迟是假比较。
+
+> **采样不变性实弹（2026-11-10）**：temperature=0.7 + seed=1234 下 c=1 vs c=16 **7/8 一致、index=2 在第 46 个 token 分叉**——采样解码下 batch 不变性不成立（浮点归约顺序随批形态变化，采样把微小 logits 差异放大成分叉）。贪心 8/8 一致 vs 采样 7/8：invariance 闸适用边界=temperature=0；采样解码要用分布稳定性判据（未实现，见 [results/invariance-2026-11-10/verdict-sampled.md](results/invariance-2026-11-10/verdict-sampled.md)）。
 - 退出码：`0` 通过（可能带 WARN 贴边提示）｜`1` 有规则不通过、失败数超过预算（默认 0）、或缺指标｜`2` 策略/报告无效，或两次测量不可比。
 
 **fail-closed 的地方**（这些都是踩过的坑，不是设计洁癖）：
