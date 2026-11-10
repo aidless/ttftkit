@@ -72,7 +72,7 @@ def _number(value, what: str) -> float:
 def _validate_rules(rules, baseline, candidate) -> dict:
     if not isinstance(rules, dict):
         raise _ConfigError("policy must be a JSON object")
-    unknown = set(rules) - {"limits", "regressions", "invariance"}
+    unknown = set(rules) - {"limits", "regressions", "invariance", "stability"}
     if unknown:
         raise _ConfigError(f"unknown policy keys: {sorted(unknown)}")
     raw_limits = rules.get("limits", {})
@@ -98,7 +98,26 @@ def _validate_rules(rules, baseline, candidate) -> dict:
         if baseline is None:
             raise _ConfigError("invariance policy requires a baseline report")
         invariance = {"against_baseline": True}
-    if not limits and not regressions and invariance is None:
+    # stability（采样解码分布稳定性）：temperature>0 时逐字节一致是错误预期
+    # （浮点噪声被采样放大），改判分歧率 = 与 baseline 不一致的输出占比 ≤ 上限。
+    raw_stability = rules.get("stability")
+    stability = None
+    if raw_stability is not None:
+        if not isinstance(raw_stability, dict):
+            raise _ConfigError(f"'stability' must be a JSON object, got {type(raw_stability).__name__}")
+        unknown_st = set(raw_stability) - {"against_baseline", "max_divergence_rate"}
+        if unknown_st:
+            raise _ConfigError(f"unknown stability keys: {sorted(unknown_st)}")
+        if raw_stability.get("against_baseline") is not True:
+            raise _ConfigError("'stability.against_baseline' must be true (only supported mode)")
+        cap = raw_stability.get("max_divergence_rate")
+        if not isinstance(cap, (int, float)) or isinstance(cap, bool) \
+                or not math.isfinite(cap) or not 0 <= cap <= 1:
+            raise _ConfigError("'stability.max_divergence_rate' must be a number in [0, 1]")
+        if baseline is None:
+            raise _ConfigError("stability policy requires a baseline report")
+        stability = {"against_baseline": True, "max_divergence_rate": float(cap)}
+    if not limits and not regressions and invariance is None and stability is None:
         raise _ConfigError("policy is empty: no rule would ever run")
 
     for name, value in limits.items():
@@ -115,7 +134,8 @@ def _validate_rules(rules, baseline, candidate) -> dict:
         if baseline is None:
             raise _ConfigError("relative policy requires a baseline report")
         _check_comparable(candidate, baseline, name)
-    return {"limits": limits, "regressions": regressions, "invariance": invariance}
+    return {"limits": limits, "regressions": regressions,
+            "invariance": invariance, "stability": stability}
 
 
 # 不变性比较只要求「问的是同一个问题、用同一个模型、同一生成上限」；
@@ -172,6 +192,73 @@ def _check_invariance(candidate: dict, baseline: dict) -> dict | None:
         "rule": "invariance", "kind": "invariance", "status": "PASS",
         "observed": f"{len(cand_out)} outputs byte-identical to baseline",
         "threshold": "0 differing outputs", "reason": "",
+    }
+
+
+# stability 的可比性键：invariance 四键之外，采样参数也必须一致——
+# 不同采样路径的报告放一起比分歧率是假比较。
+STABILITY_CONFIG_KEYS = INVARIANCE_CONFIG_KEYS + ("temperature", "top_p", "seed")
+
+
+def _check_stability(candidate: dict, baseline: dict, max_rate: float) -> dict:
+    """采样解码分布稳定性检查：分歧率 = 与 baseline 不一致的输出占比 ≤ max_rate。
+
+    fail-closed 与 invariance 同款：缺 outputs/畸形条目/index 集不一致都是
+    「没测」→ _ConfigError（exit 2），绝不折成通过。
+    与 invariance 的区别：不要求逐字节一致，只约束分歧占比（temperature>0
+    时浮点噪声被采样放大，0 分歧是错误预期——见 results/invariance 判决书）。
+    """
+    differing = [k for k in STABILITY_CONFIG_KEYS
+                 if candidate["config"][k] != baseline["config"][k]]
+    if differing:
+        raise _ConfigError(
+            f"measurements are not comparable for stability: {differing} differ"
+        )
+    labeled = (("candidate", candidate), ("baseline", baseline))
+    for label, report in labeled:
+        outputs = report.get("outputs")
+        if not isinstance(outputs, list) or not outputs:
+            raise _ConfigError(
+                f"{label} report has no captured outputs — run the benchmark with "
+                "capture_outputs=True; missing evidence is not a pass"
+            )
+        for entry in outputs:
+            if not isinstance(entry, dict):
+                raise _ConfigError(f"{label} outputs entry must be an object: {entry!r}")
+            idx, text = entry.get("index"), entry.get("text")
+            if isinstance(idx, bool) or not isinstance(idx, int) or idx < 0:
+                raise _ConfigError(f"{label} outputs entry has invalid index: {idx!r}")
+            if not isinstance(text, str):
+                raise _ConfigError(f"{label} outputs[{idx}] text must be a string, got {type(text).__name__}")
+    cand_out = {e["index"]: e["text"] for e in candidate["outputs"]}
+    base_out = {e["index"]: e["text"] for e in baseline["outputs"]}
+    if set(cand_out) != set(base_out):
+        raise _ConfigError(
+            f"output index sets differ (candidate {sorted(cand_out)} vs baseline {sorted(base_out)}); "
+            "stability needs the same prompts measured on both sides"
+        )
+    diverged = sorted(i for i in cand_out if cand_out[i] != base_out[i])
+    rate = len(diverged) / len(cand_out)
+    observed = f"{len(diverged)}/{len(cand_out)} outputs diverge (rate {rate:.3f})"
+    if rate > max_rate + 1e-12:
+        detail = ""
+        if diverged:
+            first = diverged[0]
+            pair = next(zip(base_out[first], cand_out[first]),
+                        (None, None))
+            pos = next((k for k, (a, b) in enumerate(zip(base_out[first], cand_out[first]))
+                        if a != b), None)
+            detail = (f"; output[{first}] first differs at char {pos}" if pos is not None
+                      else f"; output[{first}] length differs ({len(base_out[first])} vs {len(cand_out[first])})")
+        return {
+            "rule": "stability", "kind": "stability", "status": "FAIL",
+            "observed": observed, "threshold": f"divergence_rate <= {max_rate:g}",
+            "reason": f"divergence_rate {rate:.3f} exceeds cap {max_rate:g}{detail}",
+        }
+    return {
+        "rule": "stability", "kind": "stability", "status": "PASS",
+        "observed": observed, "threshold": f"divergence_rate <= {max_rate:g}",
+        "reason": "",
     }
 
 
@@ -511,6 +598,17 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
             checks.append(inv_check)
             if inv_check["status"] == "FAIL":
                 reasons.append(inv_check["reason"])
+
+    # 采样解码分布稳定性：与 invariance 互斥使用（逐字节一致 vs 分歧率上限）
+    if policy.get("stability"):
+        try:
+            st_check = _check_stability(
+                candidate, baseline, policy["stability"]["max_divergence_rate"])
+        except _ConfigError as exc:
+            return {"exit_code": 2, "checks": [], "reasons": [str(exc)]}
+        checks.append(st_check)
+        if st_check["status"] == "FAIL":
+            reasons.append(st_check["reason"])
 
     failed = summary["requests"] - summary["successful_requests"]
     error_rate = summary["error_rate"]

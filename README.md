@@ -63,6 +63,8 @@ ttftkit 刻意做小：**只测一个端点、只做闭环并发、只输出可�
 
 > **采样解码支持（v0.3.0 后）**：`run` 新增 `--temperature/--top-p/--seed`（默认 temperature=0 贪心，与历史行为一致）。采样参数进报告 `config`，gate 的可比性检查会把「不同采样参数」的报告判为不可比——不同解码路径的报告放一起比延迟是假比较。
 
+> **stability 规则（采样解码分布稳定性）**：`{"stability": {"against_baseline": true, "max_divergence_rate": 0.2}}`。采样解码（temperature>0）下连续批处理的浮点噪声会被采样放大，逐字节一致（invariance）是错误预期；stability 改判**分歧率**——candidate 与 baseline 输出不一致的占比 ≤ 上限（0.0 退化为硬一致）。可比性键比 invariance 多三个采样参数（temperature/top_p/seed）。实测依据：贪心 8/8 逐字节一致 vs 采样 0.7+seed 7/8 一致（index=2 第 46 token 分叉），见 [results/invariance-2026-11-10/verdict-sampled.md](results/invariance-2026-11-10/verdict-sampled.md)。
+
 > **采样不变性实弹（2026-11-10）**：temperature=0.7 + seed=1234 下 c=1 vs c=16 **7/8 一致、index=2 在第 46 个 token 分叉**——采样解码下 batch 不变性不成立（浮点归约顺序随批形态变化，采样把微小 logits 差异放大成分叉）。贪心 8/8 一致 vs 采样 7/8：invariance 闸适用边界=temperature=0；采样解码要用分布稳定性判据（未实现，见 [results/invariance-2026-11-10/verdict-sampled.md](results/invariance-2026-11-10/verdict-sampled.md)）。
 - 退出码：`0` 通过（可能带 WARN 贴边提示）｜`1` 有规则不通过、失败数超过预算（默认 0）、或缺指标｜`2` 策略/报告无效，或两次测量不可比。
 

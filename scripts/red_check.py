@@ -611,6 +611,24 @@ CASES = [
         ],
         "tests/test_runner_sampling.py::test报告config带采样参数_可比性生效",
     ),
+    (
+        "M44 stability 分歧率比较被拿掉 → 分歧率超标照样 PASS",
+        [
+            ("src/ttftkit/gate.py",
+             "    if rate > max_rate + 1e-12:\n",
+             "    if False:\n"),
+        ],
+        "tests/test_gate_stability.py::test分歧率超上限_失败",
+    ),
+    (
+        "M45 stability 采样参数可比性键被剥 → seed 不同的报告假可比",
+        [
+            ("src/ttftkit/gate.py",
+             "STABILITY_CONFIG_KEYS = INVARIANCE_CONFIG_KEYS + (\"temperature\", \"top_p\", \"seed\")",
+             "STABILITY_CONFIG_KEYS = INVARIANCE_CONFIG_KEYS"),
+        ],
+        "tests/test_gate_stability.py::test采样参数不同_不可比",
+    ),
 ]
 
 

@@ -20,6 +20,13 @@
   `--baseline`，要求 candidate 与 baseline 的捕获输出逐字节一致（同 prompt 跑 `concurrency=1`
   与目标 batch 各一轮，`capture_outputs=True` 抓证据）。可比性只看 `protocol / model / max_tokens /
   prompt_sha256`；任一侧缺 `outputs` 是「没测」→ 退出码 `2`，不是通过。
+- **采样解码分布稳定性门禁**（`stability` 规则）：`"stability": {"against_baseline": true,
+  "max_divergence_rate": 0.2}`。temperature>0 时连续批处理的浮点噪声被采样放大，逐字节一致
+  （invariance）是错误预期；stability 改判分歧率（输出不一致占比 ≤ 上限，0.0 退化为硬一致）。
+  可比性键 = invariance 四键 + 采样参数（`temperature / top_p / seed`）。实测依据：贪心 8/8
+  逐字节一致 vs 采样 0.7+seed 7/8 一致（`results/invariance-2026-11-10/verdict-sampled.md`）。
+- `run` 采样参数：`--temperature / --top-p / --seed`（默认 temperature=0 贪心，历史行为不变）；
+  采样参数进报告 `config`，不同采样路径的报告被判不可比。
 - 门禁新增 `_check_client_evidence`：`client_lag_p95_ms` 必须能追溯到 `client` 块；
   报告 `kind` 不是 `run` 直接判配置错误。
 

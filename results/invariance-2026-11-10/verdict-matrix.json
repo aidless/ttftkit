@@ -1,0 +1,38 @@
+[
+ {
+  "path": "greedy",
+  "baseline_c": 1,
+  "candidate_c": 4,
+  "rule": "invariance",
+  "status": "PASS",
+  "observed": "8 outputs byte-identical to baseline",
+  "exit_code": 0
+ },
+ {
+  "path": "greedy",
+  "baseline_c": 1,
+  "candidate_c": 16,
+  "rule": "invariance",
+  "status": "PASS",
+  "observed": "8 outputs byte-identical to baseline",
+  "exit_code": 0
+ },
+ {
+  "path": "sampled",
+  "baseline_c": 1,
+  "candidate_c": 4,
+  "rule": "stability",
+  "status": "FAIL",
+  "observed": "2/8 outputs diverge (rate 0.250)",
+  "exit_code": 1
+ },
+ {
+  "path": "sampled",
+  "baseline_c": 1,
+  "candidate_c": 16,
+  "rule": "stability",
+  "status": "PASS",
+  "observed": "1/8 outputs diverge (rate 0.125)",
+  "exit_code": 0
+ }
+]
