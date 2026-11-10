@@ -21,9 +21,11 @@ DEFAULT_PATH = "/v1/chat/completions"
 SUCCESS_FINISH_REASONS = frozenset({"stop", "length"})
 
 
-def _fail(index: int, t0: float, error: str, latency_ms: float | None = None) -> RequestRecord:
+def _fail(index: int, t0: float, error: str, latency_ms: float | None = None,
+          output_text: str | None = None) -> RequestRecord:
     latency = latency_ms if latency_ms is not None else (time.perf_counter() - t0) * 1000
-    return RequestRecord(index=index, ok=False, latency_ms=latency, error=error, started_at=t0)
+    return RequestRecord(index=index, ok=False, latency_ms=latency, error=error,
+                         started_at=t0, output_text=output_text)
 
 
 def _count(value, what: str) -> int:
@@ -43,6 +45,7 @@ async def measure_request(
     index: int = 0,
     timeout_s: float = 60.0,
     path: str = DEFAULT_PATH,
+    capture_text: bool = False,
 ) -> RequestRecord:
     """发一次流式请求并记录计时。
 
@@ -55,7 +58,8 @@ async def measure_request(
     t0 = time.perf_counter()
     try:
         return await asyncio.wait_for(
-            _measure_once(client, payload, index=index, t0=t0, timeout_s=timeout_s, path=path),
+            _measure_once(client, payload, index=index, t0=t0, timeout_s=timeout_s,
+                          path=path, capture_text=capture_text),
             timeout=timeout_s,
         )
     except asyncio.TimeoutError:
@@ -70,11 +74,15 @@ async def _measure_once(
     t0: float,
     timeout_s: float,
     path: str,
+    capture_text: bool = False,
 ) -> RequestRecord:
     first_t: float | None = None
     last_t: float | None = None
     content_chunks = 0
     intervals: list[float] = []
+    # 捕获缓冲：只有 capture_text=True 才收文本；性能测量默认不存文本
+    # （报告体积与敏感面都小一个量级），invariance 闸开捕获时才付这个成本。
+    text_parts: list[str] | None = [] if capture_text else None
     output_tokens: int | None = None
     prompt_tokens: int | None = None
     finish_reason: str | None = None
@@ -134,6 +142,8 @@ async def _measure_once(
                         return _fail(index, t0, "invalid event: content is not a string")
                     if content:
                         content_chunks += 1
+                        if text_parts is not None:
+                            text_parts.append(content)
                         if first_t is None:
                             first_t = now
                         else:
@@ -150,13 +160,14 @@ async def _measure_once(
         return _fail(index, t0, f"http error: {type(exc).__name__}")
 
     latency_ms = (time.perf_counter() - t0) * 1000
+    captured = "".join(text_parts) if text_parts is not None else None
     if content_chunks == 0:
-        return _fail(index, t0, "empty content", latency_ms)
+        return _fail(index, t0, "empty content", latency_ms, output_text=captured)
     if finish_reason is not None and finish_reason not in SUCCESS_FINISH_REASONS:
         # 同理不内插服务端取值，只报「非正常结束」这一事实
-        return _fail(index, t0, "unsuccessful finish_reason", latency_ms)
+        return _fail(index, t0, "unsuccessful finish_reason", latency_ms, output_text=captured)
     if finish_reason is None and not done_seen:
-        return _fail(index, t0, "stream ended without finish_reason", latency_ms)
+        return _fail(index, t0, "stream ended without finish_reason", latency_ms, output_text=captured)
 
     assert first_t is not None and last_t is not None  # content_chunks > 0 保证
     return RequestRecord(
@@ -170,4 +181,5 @@ async def _measure_once(
         prompt_tokens=prompt_tokens,
         chunk_intervals_ms=tuple(intervals),
         started_at=t0,
+        output_text=captured,
     )

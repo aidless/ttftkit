@@ -68,6 +68,17 @@ SCENARIOS: dict[str, list[tuple[float, bytes]] | None] = {
     "http500": None,
 }
 
+# congest：服务端延迟随在飞请求数线性增长（用于验证 SLO 扫描真的会在高并发下被打破）
+_CONGEST_SCRIPT: list[tuple[float, bytes]] = [
+    (0.06, b'data: {"choices":[{"delta":{"content":"a"}}]}\n\n'),
+    (0.02, b'data: {"choices":[{"delta":{"content":"b"}}]}\n\n'),
+    (0.00, b'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+           b'"usage":{"prompt_tokens":7,"completion_tokens":5}}\n\n'),
+    (0.00, b"data: [DONE]\n\n"),
+]
+_INFLIGHT = 0
+_INFLIGHT_LOCK = threading.Lock()
+
 
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -75,7 +86,15 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.rfile.read(int(self.headers.get("Content-Length", 0)))
         name = self.path.strip("/").split("/")[0]
-        script = SCENARIOS[name]
+        inflight = 1
+        if name == "congest":
+            global _INFLIGHT
+            with _INFLIGHT_LOCK:
+                _INFLIGHT += 1
+                inflight = _INFLIGHT
+            script = _CONGEST_SCRIPT
+        else:
+            script = SCENARIOS[name]
         if script is None:
             body = b'{"error":"boom"}'
             self.send_response(500)
@@ -90,6 +109,9 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         raw = name == "bad-chunk"  # 该场景故意写非法分块，用于验证协议错误不回显字节
         try:
+            if name == "congest":
+                # 并发越高、排队越久：每个在飞请求先等 inflight*30ms
+                time.sleep(0.03 * inflight)
             for delay, chunk in script:
                 time.sleep(delay)
                 if raw:
@@ -101,6 +123,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self.wfile.write(b"0\r\n\r\n")
         except (BrokenPipeError, ConnectionResetError):
             pass
+        finally:
+            if name == "congest":
+                with _INFLIGHT_LOCK:
+                    _INFLIGHT -= 1
 
     def log_message(self, *args):  # 静音
         pass

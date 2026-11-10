@@ -26,7 +26,9 @@
 }
 ```
 
-**`limits`（绝对）**：延迟/错误率是上限，吞吐类（`output_tokens_per_s`、`requests_per_s`、`goodput_per_s`）是下限，方向内置。
+**`limits`（绝对）**：延迟/错误率是上限，吞吐类（`output_tokens_per_s`、`requests_per_s`、`goodput_per_s`）与 `gpu_util_peak_pct` 是下限，方向内置。
+
+可用的标量指标：`requests`、`successful_requests`、`error_rate`、`requests_per_s`、`output_tokens_per_s`、`token_usage_coverage`、`goodput_per_s`、`degradation_ratio`、`mem_used_peak_mb`、`mem_used_delta_mb`、`gpu_util_peak_pct`、`client_lag_p95_ms`（v0.3）。分布指标可写 `ttft_ms.p95` 这类路径（字段见 `docs/metrics.md`）。
 
 **`regressions`（相对）**：允许相对基线退化的百分比。延迟类 `observed ≤ baseline × (1 + pct/100)`；吞吐类 `observed ≥ baseline × (1 − pct/100)`。基线为 0 时（例如 `error_rate`），任何正值都算退化。
 
@@ -57,6 +59,8 @@ protocol / model / concurrency / max_tokens / requests / prompt_sha256 / profile
 
 显存总量不同 = 不可比；这包括**绝对上限**：512 MB 的增长上限在 6 GB 卡与 24 GB 卡上不是同一件事。硬件读数本身也要物理合理（非负、峰值不超过设备总量），否则按配置错误处理。
 
+`client_lag_p95_ms`（v0.3）**不做指纹校验**：它是压测机自己的排队时间，没有设备指纹可言。代价要说清：**跨机器比较这个数没有意义**，它只在同一台压测机、同一并发下回答「这一轮的数字被客户端污染了多少」。用它的正确姿势是设一个绝对上限（如 `"client_lag_p95_ms": 20`）当**测量可信度闸**，而不是当性能指标去比。
+
 `prompt_sha256` 只存哈希：prompt 原文可能含内部业务信息，不进报告。
 
 ## 5. fail-closed 清单
@@ -78,6 +82,9 @@ protocol / model / concurrency / max_tokens / requests / prompt_sha256 / profile
 | `summary` 声称硬件值但报告没有 `hardware` 块 | 2 | 数字没有来源 |
 | 块内 `delta` ≠ `peak − baseline`，或零样本带读数 | 2 | 证据自相矛盾 |
 | 硬件读数为负 / 峰值 > 设备总量 | 2 | 物理上不可能 |
+| `summary` 声称 `client_lag_p95_ms` 但报告没有 `client` 块 | 2 | 数字没有来源 |
+| `client.lag_ms` 为 `null` 却声称 lag 值 / 两者不一致 | 2 | 证据自相矛盾 |
+| 报告 `kind` 不是 `run`（如 `scan`） | 2 | 多级聚合不是一次测量，请挑一级 `levels[i].summary` 再判 |
 
 失败预算默认是 **0**：不写 `error_rate` 上限时，任一请求失败即阻断。要允许偶发失败，必须显式把预算写进 `limits`（如 `"error_rate": 0.005` 表示 ≤0.5%），门禁按该预算判：`error_rate > budget` 才 FAIL。预算不是「默默放行」——它会作为一条显式的 `implicit` 检查出现在输出里。
 

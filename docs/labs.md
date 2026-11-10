@@ -104,7 +104,7 @@ PYTHONPATH=src python3 scripts/shadow_gate.py --report baselines/run1.json \
 
 ```bash
 cat .github/workflows/ci.yml
-PYTHONPATH=src python3 scripts/red_check.py    # 32/32 条必须 RED
+PYTHONPATH=src python3 scripts/red_check.py    # 41/41 条必须 RED
 python3 -m ruff check src tests scripts
 python3 -m pytest -q
 ```
@@ -178,8 +178,66 @@ PYTHONPATH=src python3 -m pytest -q tests/test_gate_failclosed.py -v
 **通过判据**：RCA 里每个数字与每句根因都能被命令复现（`git show` + 测试名），并且写清
 「同类缺陷还可能出现在哪」——例如 `null` vs `0`、`count` 与实际样本数不一致、报告缺字段被默认补成合法值。
 
+## Lab 9 — SLO 负载扫描：把「能跑多快」换成「在约束下能撑多少」
+
+| 项 | 内容 |
+| --- | --- |
+| 目标 | 理解 SLO-qualified goodput，并亲手看到「违反即停」与「`null` 不算通过」 |
+| JD 映射 | 职责 1、2、5（benchmark 设计 + 指标体系 + 发布准入标准） |
+| 本机可行 | ✅（ollama 或 `tests/conftest.py` 里的假服务端） |
+
+```bash
+# 用测试里的假服务端最省事：它有一个「并发越高越慢」的 congest 场景
+PYTHONPATH=src python3 -m pytest -q tests/test_scan.py -v
+PYTHONPATH=src python3 -m pytest -q tests/test_scan.py::test_cli_scan_stops_when_latency_grows_with_concurrency -v
+
+# 真服务端（本机 ollama）
+ttftkit scan --endpoint http://127.0.0.1:11434/v1/chat/completions --model qwen2.5-coder:0.5b \
+    --levels 1,2,4 --requests 4 --max-tokens 8 --slo-ttft 3000 --output results/scan.json
+```
+
+**要亲眼看的两件事**：
+
+1. 报告里**有**那一级违反 SLO 的行（`stopped_at`），而不是只有「最高通过并发」。把违反的行删掉再做一次，
+   数字会更好看——这正是很多 benchmark 报告在做的事。
+2. 把某一级的 `ttft_ms.p95` 改成 `null`（模拟没测到），`violations` 会记 `ttft_ms.p95 missing (no evidence)`。
+   **缺证据不是通过**，这条在 `tests/test_scan.py::test_missing_ttft_evidence_is_not_satisfied` 里钉死。
+
+**通过判据**：能用自己的话解释「为什么满负载吞吐不能当容量结论」，并指出报告里哪一行是「坏消息也留着」的证据。
+边界：这是**闭环**结论（K 个并发客户端），不是生产到达率下的容量；要开环请用 `aiperf` / `guidellm`。
+
+## Lab 10 — 客户端污染：让压测机自己成为瓶颈
+
+| 项 | 内容 |
+| --- | --- |
+| 目标 | 亲手造一次「测出来变慢，但其实服务端没变」的假回归 |
+| JD 映射 | 职责 3、4（profiler/归因、缺陷根因） |
+| 本机可行 | ✅ |
+
+单进程 asyncio 客户端把事件循环、GIL、DNS、TLS 全放在一个线程上；高并发时**压测机自己排队**，
+这一段会被算进 TTFT（`docs/papers.md` A1）。
+
+```bash
+# 1) 看监视器能测到人为阻塞
+PYTHONPATH=src python3 -m pytest -q tests/test_lag.py::test_monitor_detects_a_blocked_event_loop -v
+
+# 2) 真跑一次，看报告里的「客户端（事件循环延迟）」段
+ttftkit run --endpoint http://127.0.0.1:11434/v1/chat/completions --model qwen2.5-coder:0.5b \
+    --requests 8 --concurrency 8 --max-tokens 16 --output results/lag.json
+grep -A6 "客户端（事件循环延迟）" results/lag.md
+```
+
+**要亲手做的实验**：同一份服务端、同一并发，一次正常跑、一次在客户端机器上开满 CPU 负载
+（如 `for i in $(seq 1 $((nproc))); do yes > /dev/null & done`，跑完记得 kill）。
+观察 `lag_ms.p95` 与 TTFT p95 一起抬高——但**服务端指标不变**（如果能在服务端看 Prometheus）。
+这就是「客户端视角的 TTFT 是测量上界」的实证。
+
+**通过判据**：报告里能指出 `lag_p95` 占 TTFT p95 的比例，并据此说明「这一轮该降并发重测」还是
+「服务端真的变慢了」。门禁用法：`"client_lag_p95_ms": 20` 当**测量可信度闸**（绝对上限），
+不要拿它跨机器比——它没有设备指纹。
+
 ## 实验顺序建议
 
-1 → 2 → 3 → 4 → 5（本机全可跑）→ 8（本机）→ 7（假采样器本机，真卡上云）→ 6（上云）。
+1 → 2 → 3 → 4 → 5（本机全可跑）→ 8（本机）→ 9、10（本机）→ 7（假采样器本机，真卡上云）→ 6（上云）。
 
-做完 1–5 与 8，JD 的五条职责都有可展示的产物；6、7 是加分项里最能拉开差距的两块。
+做完 1–5、8–10，JD 的五条职责都有可展示的产物；6、7 是加分项里最能拉开差距的两块。

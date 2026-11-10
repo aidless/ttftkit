@@ -31,6 +31,9 @@ class RequestRecord:
     chunk_intervals_ms: tuple[float, ...] = ()
     error: str | None = None
     started_at: float = 0.0
+    # 捕获的输出文本（capture_text=True 时才有）：invariance 闸的证据面。
+    # None = 没开捕获（没测）；"" = 开了捕获但没收到内容。两者语义不同。
+    output_text: str | None = None
 
     @property
     def tpot_ms(self) -> float | None:

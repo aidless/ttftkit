@@ -33,17 +33,37 @@ summary 里三个标量（`mem_used_peak_mb` / `mem_used_delta_mb` / `gpu_util_p
 
 > 诚实边界：真卡读数**尚未**在本项目实测（本机无 NVIDIA 设备），只有假采样器链路被验证过。
 
-## v0.3：profiler 交接
+## v0.3：测量可信度与 SLO 判定（已完成，2026-11-01）
+
+文献依据与「哪些实现、哪些只写进文档」见 [`papers.md`](papers.md)。实际落地：
+
+- **SLO 负载扫描**：`ttftkit scan --levels 1,2,4,8 --slo-ttft ...` 逐级判 SLO，报「满足 SLO 的最高负载」；
+  违反的那一级留在报告里（`stopped_at` / `violations`），一级违反即停，缺 p95 不算通过。
+  `kind: "scan"` 的报告**不能**过门禁（要挑一级 `levels[i].summary` 再判）。
+- **客户端污染可观测**：测量窗口内采事件循环延迟（`client.lag_ms` p50/p95/max）→ `summary.client_lag_p95_ms`
+  → 可写成门禁上限；`lag_p95 > 5% × TTFT p95` 时报告打「这一轮是测量上界」的警告。
+- **分位数置信区间**：p50/p95 附 95% percentile bootstrap 区间（种子固定 0、迭代数入库），
+  样本 < 20 条给 `null` 而不是假精确区间。
+- 变异反证从 32 条扩到 **41 条**（`scripts/red_check.py`）。
+
+> 诚实边界：客户端 lag 是**单进程 asyncio 客户端**的自身排队，不是服务端延迟的分解；
+> `scan` 仍是**闭环**结论（K 个并发客户端），不等于生产到达率下的容量。
+
+## v0.4：profiler 交接与趋势
 
 - `--profile-trace` 选项：压测同时用 `torch.profiler` 或 `nsys profile` 抓一段 trace，`*.nsys-rep` / `*.json` 落到 `results/`。
 - 报告里记录 trace 的时间窗口与当时并发，避免「trace 是空载时抓的」这类错误归因。
 - 分析流程写进 `docs/profiler.md`：先看 kernel 时间占比，再看是否有 GPU idle（说明在等 CPU/网络），最后才怀疑算子。
+- `ttftkit trend`：对 `baselines/` 的历史报告做变点检测（E-Divisive / 学生 t），
+  回答「这次是真的退化还是噪声」，替代现在的「阈值拍板」（见 [`papers.md`](papers.md) B1）。
 
-## v0.4：更真实的负载
+## v0.5：更真实的负载
 
 - 到达率驱动（poisson）替代固定 worker 闭环，与线上流量形状对齐。
 - 数据集驱动的输入长度分布（sharegpt / 内部日志），报告里记录长度分布摘要而不是单条 prompt。
-- 多轮对话场景（前缀复用对 KV cache 命中率影响很大）。
+- 多轮对话场景（前缀复用对 KV cache 命中率影响很大），以及 agent 负载的多轮 + 上下文增长形状
+  （`papers.md` E4）。
+- 多进程客户端：把客户端自身排队从 TTFT 里挤出去（`papers.md` A1 的正式解法）。
 
 ## 在云 GPU 上跑（本机没有 NVIDIA 设备）
 

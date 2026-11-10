@@ -18,6 +18,16 @@ def _fmt(value, digits=1, suffix=""):
 _DIST_FIELDS = ("mean", "p50", "p95", "p99", "count")
 
 
+def _with_ci(text: str, bounds) -> str:
+    """点估计后面挂上 bootstrap 区间；没有区间就只给点估计。"""
+    if not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
+        return text
+    low, high = bounds
+    if low is None or high is None:
+        return text
+    return f"{text} [{_fmt(low)}, {_fmt(high)}]"
+
+
 def _dist_line(name, dist, unit="ms"):
     if dist is None:
         return f"| {name} | n/a | n/a | n/a | n/a | n/a |"
@@ -26,9 +36,12 @@ def _dist_line(name, dist, unit="ms"):
     missing = [f for f in _DIST_FIELDS if f not in dist]
     if missing:
         raise ValueError(f"{name} distribution missing {', '.join(missing)}")
+    ci = dist.get("ci") if isinstance(dist.get("ci"), dict) else {}
+    p50_text = _with_ci(_fmt(dist["p50"]), ci.get("p50"))
+    p95_text = _with_ci(_fmt(dist["p95"]), ci.get("p95"))
     return (
-        f"| {name} | {_fmt(dist['mean'])}{unit} | {_fmt(dist['p50'])}{unit} "
-        f"| {_fmt(dist['p95'])}{unit} | {_fmt(dist['p99'])}{unit} | {dist['count']} |"
+        f"| {name} | {_fmt(dist['mean'])}{unit} | {p50_text}{unit} "
+        f"| {p95_text}{unit} | {_fmt(dist['p99'])}{unit} | {dist['count']} |"
     )
 
 
@@ -124,10 +137,45 @@ def markdown(result: dict) -> str:
                 "显存数字只覆盖采样成功的时刻，不能当作全程证据。",
                 "",
             ]
+    client = result.get("client")
+    if client is not None and not isinstance(client, dict):
+        raise ValueError("report field 'client' must be an object or null")
+    lines += ["## 客户端（事件循环延迟）", ""]
+    if not isinstance(client, dict):
+        lines += ["未记录：本报告不含客户端 lag 证据（较早版本生成的报告）。", ""]
+    elif client.get("lag_ms") is None:
+        # 测量窗口短于采样间隔时一个样本都采不到：说「没有证据」，不要说「没问题」
+        lines += ["未取到 lag 样本（测量窗口短于采样间隔）：本报告不含客户端延迟证据。", ""]
+    else:
+        lag = client.get("lag_ms")
+        if not isinstance(lag, dict):
+            raise ValueError("report field 'client.lag_ms' must be an object")
+        samples = lag.get("samples")
+        lines += [
+            f"- 采样 {samples} 次（间隔 {lag.get('interval_s')} s）："
+            f"p50 {_fmt(lag.get('p50_ms'), 2)} ms，p95 {_fmt(lag.get('p95_ms'), 2)} ms，"
+            f"最大 {_fmt(lag.get('max_ms'), 2)} ms",
+            "",
+        ]
+        ttft = summary.get("ttft_ms")
+        ttft_p95 = ttft.get("p95") if isinstance(ttft, dict) else None
+        lag_p95 = lag.get("p95_ms")
+        if (
+            isinstance(ttft_p95, (int, float)) and not isinstance(ttft_p95, bool)
+            and isinstance(lag_p95, (int, float)) and not isinstance(lag_p95, bool)
+            and ttft_p95 > 0 and lag_p95 > 0.05 * ttft_p95
+        ):
+            share = 100.0 * lag_p95 / ttft_p95
+            lines += [
+                f"> 客户端事件循环延迟已占 TTFT p95 的 {share:.1f}%：这一轮延迟是**测量上界**，"
+                "其中含客户端自身排队（见 docs/papers.md A1）。判断服务端性能前先降低并发或用多进程客户端。",
+                "",
+            ]
+
     lines += [
         "## 延迟分布（单位：毫秒）",
         "",
-        "| 指标 | 均值 | p50 | p95 | p99 | 样本数 |",
+        "| 指标 | 均值 | p50 [95% CI] | p95 [95% CI] | p99 | 样本数 |",
         "| --- | --- | --- | --- | --- | --- |",
         _dist_line("TTFT", summary.get("ttft_ms")),
         _dist_line("TPOT", summary.get("tpot_ms")),
@@ -137,6 +185,8 @@ def markdown(result: dict) -> str:
         "",
         "> TPOT = 解码段 ÷ (服务端 completion_tokens − 1)。SSE 块间隔只是传输层观测，"
         "**不是**逐 token ITL；一个块可能含多个 token。",
+        "> p50/p95 后的方括号是 95% bootstrap 置信区间（种子固定为 0）；"
+        "样本少于 20 条时不给区间——8 条记录的 p95 其实就是最大值。",
         "",
     ]
     errors = summary.get("errors")
@@ -164,6 +214,18 @@ def markdown(result: dict) -> str:
             lines.append(f"| … | | | | | | 其余 {len(records) - 50} 条见 JSON |")
         lines.append("")
     return "\n".join(lines)
+
+
+def write_scan(result: dict, path: str | Path) -> tuple[Path, Path]:
+    """写 scan 的 JSON 与同名 Markdown。"""
+    from .scan import markdown_scan
+
+    json_path = Path(path)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    md_path = json_path.with_suffix(".md")
+    md_path.write_text(markdown_scan(result), encoding="utf-8")
+    return json_path, md_path
 
 
 def write(result: dict, path: str | Path) -> tuple[Path, Path]:

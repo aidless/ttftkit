@@ -8,9 +8,17 @@
 from __future__ import annotations
 
 import math
+import random
 from collections.abc import Iterable, Sequence
 
 from .models import RequestRecord
+
+MIN_CI_SAMPLES = 20
+"""少于这么多条记录时，p95 的置信区间没有意义（8 条记录的 p95 实际上就是最大值）。"""
+
+CI_ITERATIONS = 1000
+CI_SEED = 0
+CI_LEVEL = 0.95
 
 
 def percentile(values: Sequence[float], q: float) -> float:
@@ -29,6 +37,50 @@ def percentile(values: Sequence[float], q: float) -> float:
         return float(ordered[low])
     weight = pos - low
     return float(ordered[low] + (ordered[high] - ordered[low]) * weight)
+
+
+def _quantile_sorted(ordered: Sequence[float], q: float) -> float:
+    """对已排序序列取线性插值分位数（避免 bootstrap 里每次重复排序）。"""
+    if not ordered:
+        raise ValueError("quantile of empty sequence")
+    if len(ordered) == 1:
+        return float(ordered[0])
+    pos = q * (len(ordered) - 1)
+    low = math.floor(pos)
+    high = math.ceil(pos)
+    if low == high:
+        return float(ordered[low])
+    weight = pos - low
+    return float(ordered[low] + (ordered[high] - ordered[low]) * weight)
+
+
+def bootstrap_ci(data: Sequence[float], *, iterations: int = CI_ITERATIONS,
+                 seed: int = CI_SEED, level: float = CI_LEVEL) -> dict:
+    """分位数的百分位 bootstrap 置信区间。
+
+    纪律（docs/papers.md B2）：种子固定、迭代数写进结果，否则 CI 判定不可复现。
+    """
+    if not data:
+        raise ValueError("bootstrap of empty sequence")
+    values = [float(v) for v in data]
+    rng = random.Random(seed)
+    size = len(values)
+    p50s: list[float] = []
+    p95s: list[float] = []
+    for _ in range(iterations):
+        sample = sorted(values[rng.randrange(size)] for _ in range(size))
+        p50s.append(_quantile_sorted(sample, 0.50))
+        p95s.append(_quantile_sorted(sample, 0.95))
+    tail = (1.0 - level) / 2.0
+    p50s.sort()
+    p95s.sort()
+    return {
+        "level": level,
+        "iterations": iterations,
+        "seed": seed,
+        "p50": [_quantile_sorted(p50s, tail), _quantile_sorted(p50s, 1.0 - tail)],
+        "p95": [_quantile_sorted(p95s, tail), _quantile_sorted(p95s, 1.0 - tail)],
+    }
 
 
 def distribution(values: Iterable[float]) -> dict | None:
@@ -53,6 +105,9 @@ def distribution(values: Iterable[float]) -> dict | None:
         "p99": percentile(data, 0.99),
         "stdev": stdev,
         "cv": (stdev / mean) if mean else None,
+        # 样本太少时不给区间：宁可说「不知道」，也不要给一个假精确的 ±
+        "ci": (bootstrap_ci(data, iterations=CI_ITERATIONS if len(data) <= 500 else 200)
+               if len(data) >= MIN_CI_SAMPLES else None),
     }
 
 
@@ -78,11 +133,13 @@ def summarize(
     slo_ttft_ms: float | None = None,
     slo_tpot_ms: float | None = None,
     hardware: dict | None = None,
+    client: dict | None = None,
 ) -> dict:
     """把一组请求记录汇总成报告里的 `summary` 段。
 
     seconds: 测量窗口的墙钟时长（秒），必须有限且 > 0。
     hardware: 采集到的硬件块（v0.2+）；未采样时传 None，对应指标一律为 null 而非 0。
+    client: 客户端事件循环 lag 块（v0.3+）；同样 null 而非 0。
     """
     if not isinstance(seconds, (int, float)) or isinstance(seconds, bool):
         raise ValueError(f"measurement window must be a number, got {seconds!r}")
@@ -122,6 +179,7 @@ def summarize(
         "mem_used_peak_mb": _hw_metric(hardware, "mem_used_peak_mb"),
         "mem_used_delta_mb": _hw_metric(hardware, "mem_used_delta_mb"),
         "gpu_util_peak_pct": _hw_metric(hardware, "utilization_peak_pct"),
+        "client_lag_p95_ms": _client_lag(client),
         "errors": _error_counts(records),
     }
 
@@ -131,6 +189,21 @@ def _hw_metric(hardware: dict | None, key: str) -> float | None:
     if not isinstance(hardware, dict):
         return None
     value = hardware.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value):
+        return None
+    return float(value)
+
+
+def _client_lag(client: dict | None) -> float | None:
+    """客户端 lag p95：缺席必须是 null，0 会被误读成「客户端完全没排队」。"""
+    if not isinstance(client, dict):
+        return None
+    lag = client.get("lag_ms")
+    if not isinstance(lag, dict):
+        return None
+    value = lag.get("p95_ms")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     if not math.isfinite(value):

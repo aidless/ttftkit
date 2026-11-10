@@ -38,22 +38,26 @@ ttftkit 刻意做小：**只测一个端点、只做闭环并发、只输出可�
 | 错误率 | 失败请求 / 全部请求 | 失败请求不参与延迟统计，但**一定要进分母** |
 | 稳定性 | `latency_ms.cv`、`degradation_ratio`（后 1/4 ÷ 前 1/4 延迟） | 后者专抓跑久了变慢（显存泄漏、KV 碎片、降频） |
 | 显存增长 | `mem_used_peak_mb − mem_used_baseline_mb` | 没采到样时是 `null`，**不是 0**；`0 MB` 会被读成「测到了、没占显存」 |
+| 客户端 lag | 测量窗口内事件循环的唤醒延迟 p50/p95/max | 单进程 asyncio 客户端的**自身排队**会混进 TTFT/TPOT；它是「测量上界」的证据，不是服务端性能 |
+| 分位数置信区间 | p50/p95 的 percentile bootstrap 95% 区间（种子固定 0） | 样本 < 20 条时给 `null`；8 条记录的 p95 其实就是最大值，套区间是假精确 |
 
 一个 SSE 块可能含多个 token，所以块间隔只作为传输层观测记录（`chunk_gap_ms`），**不叫 ITL**。详细推导与对齐说明见 [`docs/metrics.md`](docs/metrics.md)。
 
 ## 门禁
 
-策略文件支持两种规则，可同时使用：
+策略文件支持三种规则，可同时使用：
 
 ```json
 {
   "limits":      { "ttft_ms.p95": 800, "tpot_ms.p95": 60, "error_rate": 0.0 },
-  "regressions": { "ttft_ms.p95": 10, "output_tokens_per_s": 5 }
+  "regressions": { "ttft_ms.p95": 10, "output_tokens_per_s": 5 },
+  "invariance":  { "against_baseline": true }
 }
 ```
 
 - `limits`：绝对上限/下限，越界即 FAIL。
 - `regressions`：相对基线允许的退化百分比（延迟类越小越好、吞吐类越大越好，方向内置）。
+- `invariance`（batch 不变性，v0.4）：要求 `--baseline`，candidate 与 baseline 两份报告的捕获输出**逐字节一致**。基准跑 `concurrency=1`，候选跑目标 batch；跑基准/候选时都要 `capture_outputs=True`（报告里才有 `outputs`）。可比性只要求 `protocol / model / max_tokens / prompt_sha256` 一致——`concurrency / requests` 是 batch 形态本身，允许不同。任何一侧缺 `outputs` 都是「没测」（`2`），不是通过。
 - 退出码：`0` 通过（可能带 WARN 贴边提示）｜`1` 有规则不通过、失败数超过预算（默认 0）、或缺指标｜`2` 策略/报告无效，或两次测量不可比。
 
 **fail-closed 的地方**（这些都是踩过的坑，不是设计洁癖）：
@@ -67,6 +71,24 @@ ttftkit 刻意做小：**只测一个端点、只做闭环并发、只输出可�
 - 失败预算：默认任何失败都拦；若策略写了 `limits.error_rate`，则按该预算判定（预算内的小比例失败放行）。
 
 策略写法与取舍见 [`docs/gate.md`](docs/gate.md)。
+
+## SLO 负载扫描（v0.3）
+
+「满负载下多少 tok/s」是个容易误导人的数：牺牲延迟换来的吞吐也会被算进去。`scan` 反过来问——**在延迟/错误率约束下，能撑到多少负载**（SLO-qualified goodput，见 [`docs/papers.md`](docs/papers.md) C1）。
+
+```bash
+ttftkit scan --endpoint http://127.0.0.1:8000/v1/chat/completions --model Qwen/Qwen2.5-7B-Instruct \
+    --levels 1,2,4,8,16 --slo-ttft 800 --slo-tpot 60 --slo-error-rate 0.0 \
+    --requests 16 --max-tokens 128 --profile rtx4090-vllm-0.6.3 --output results/scan.json
+```
+
+输出：逐级一行（并发 / 是否满足 / req/s / tok/s / TTFT p95 / TPOT p95 / 违反了哪条），加一句「满足 SLO 的最高负载」。三条纪律：
+
+1. **违反的那一级留在报告里**（`stopped_at` + `violations`）——只报好看的数字等于自欺。
+2. **一级违反即停**，继续往上扫只会把超时和崩溃混进数据。
+3. **没有证据不算通过**：某一级缺 p95（`null`）记为「不满足」，不当作默认达标。
+
+`scan` 报告**不能直接过门禁**（`kind: "scan"` → 退出码 `2`）：它是多级聚合，请挑一级的 `levels[i].summary` 当单次测量再判。
 
 ## 显存与 GPU 采样（v0.2）
 
@@ -107,6 +129,10 @@ CI 里先用**影子模式**（`scripts/shadow_gate.py` 不带 `--strict` 时恒
 - name: Release gate
   run: ttftkit gate results/run.json --policy configs/policy.json --baseline baselines/main.json
 # 或者先用影子门禁：只记录读数，不阻断
+# SLO 扫描（可选）：只记录，不比绝对值
+- name: SLO scan
+  run: ttftkit scan --endpoint "$ENDPOINT" --model "$MODEL" --levels 1,2,4,8 \
+      --slo-ttft 800 --profile "$PROFILE" --output results/scan.json
 - name: Shadow gate (non-blocking)
   continue-on-error: true
   run: python scripts/shadow_gate.py --report results/run.json --baseline baselines/main.json --policy configs/policy.baseline.json
@@ -141,8 +167,9 @@ Ryzen 5800H / 无 GPU / ollama `qwen2.5-coder:0.5b`，3 请求、并发 1、`max
   在真实本地 SSE 服务上跑通（`tests/` 含真实本地 SSE 服务用例）。
 - 门禁**fail-closed**：指标缺失/`NaN`/`inf`/字符串/布尔 → 不通过；空策略/未知指标名 → 配置错误(`2`)；
   相对比较要求协议/模型/并发/token/请求数/prompt 哈希/指纹完全一致，否则不可比。
-- 已知退化**会被拦住**：`scripts/red_check.py` 逐条回退 32 处修复，对应用例全部变红（32/32），
+- 已知退化**会被拦住**：`scripts/red_check.py` 逐条回退 41 处修复，对应用例全部变红（41/41），
   证明这些判定不是摆设。
+- **SLO 扫描与客户端污染可判定**：`scan` 违反即停且保留坏级别、`null` 不当通过；`client.lag` 能测到人为阻塞（`time.sleep(0.08)` → `max_ms ≥ 30`），且门禁拒绝「summary 声称 lag 但没有 `client` 块」。
 - 硬件块**自洽且可溯源**：`delta == peak − baseline`、负数/超设备总量 → 配置错误、
   `config.hardware` 必须等于用块重算的指纹（防改块绕过可比性门禁）。
 - 基线与阈值**来自同机 5 次实测**，不是拍的：`baselines/README.md` 给出 5 次全表 + 复现命令，
@@ -156,6 +183,9 @@ Ryzen 5800H / 无 GPU / ollama `qwen2.5-coder:0.5b`，3 请求、并发 1、`max
 - 显存是**设备级 + 轮询**：同卡其他进程的变化会混进 `delta`，间隔内的单次尖峰可能被漏掉（见 [`docs/hardware.md`](docs/hardware.md)）。
 - 闭环固定并发，**不模拟泊松到达或真实流量分布**；要那个用 `aiperf`。
 - TPOT 是**客户端近似**：同一 SSE 块内的 token 时间无法拆分。
+- 客户端 lag 只是**上界的一半**：同一台机器上别的进程也在抢 CPU；它不是「服务端慢了多少」的分解。
+- `scan` 的结论仍是**闭环**结论（「K 个并发客户端下」），不是生产到达率下的容量；要开环到达率请用 `aiperf` / `guidellm`。
+- 分位数置信区间是**分位数本身的不确定性**，不是「下一次测量的预测区间」，别拿它当 SLO 余量。
 - **不做分布式多机压测**，不测第三方付费 API 的绝对性能（网络抖动会污染结果）。
 
 ## 开发
@@ -166,9 +196,9 @@ python3 -m ruff check src tests scripts
 python3 scripts/red_check.py  # RED 反证：把修复回退后，对应测试必须变红
 ```
 
-`red_check.py` 是变异检查的自动化版本：在临时副本上逐条回退修复（TTFT 取值时机、门禁边界、吞吐分母、token 口径、坏 `choices`、总时限、错误串回显、非字符串 `content`、残缺报告、warmup 退出码、`count=0` 带分位数、显存 `null`→`0`、硬件可比性、影子门禁退出码、label 恒 PASS、利用率方向、stop 截断、单样本 delta、零样本块、指纹 `none`、证据链不一致、影子读坏输入、指纹溯源、截断读数、物理不可能值、Collector 参数），跑对应用例并断言它**失败**。当前 32/32 全部变红——修复若只是摆设，这一步会变绿并报错。
+`red_check.py` 是变异检查的自动化版本：在临时副本上逐条回退修复（TTFT 取值时机、门禁边界、吞吐分母、token 口径、坏 `choices`、总时限、错误串回显、非字符串 `content`、残缺报告、warmup 退出码、`count=0` 带分位数、显存 `null`→`0`、硬件可比性、影子门禁退出码、label 恒 PASS、利用率方向、stop 截断、单样本 delta、零样本块、指纹 `none`、证据链不一致、影子读坏输入、指纹溯源、截断读数、物理不可能值、Collector 参数、lag 空样本 `null`、lag 真能测到阻塞、扫描违反即停、缺证据不算通过、scan 不可过门禁、lag 无来源、bootstrap 种子、小样本不给区间、client 块形状），跑对应用例并断言它**失败**。当前 **41/41** 全部变红——修复若只是摆设，这一步会变绿并报错。
 
-按 JD 练习的路径见 [`docs/labs.md`](docs/labs.md)（8 个实验，每个都有可复跑的通过判据）。
+按 JD 练习的路径见 [`docs/labs.md`](docs/labs.md)（10 个实验，每个都有可复跑的通过判据）；这些能力的文献依据与「哪些只是文档、哪些真实现了」见 [`docs/papers.md`](docs/papers.md)。
 
 ## License
 

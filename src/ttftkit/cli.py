@@ -13,8 +13,9 @@ from pathlib import Path
 from . import __version__
 from .gate import evaluate
 from .hardware import command_sampler, detect_sampler
-from .report import markdown, write
+from .report import markdown, write, write_scan
 from .runner import BenchmarkFailed, run_benchmark
+from .scan import scan
 
 DEFAULT_PROMPT = "Explain in one paragraph why KV cache memory grows with context length."
 
@@ -78,6 +79,69 @@ def cmd_run(args) -> int:
     return 0
 
 
+def _parse_levels(text: str) -> list[int]:
+    levels: list[int] = []
+    for piece in text.split(","):
+        piece = piece.strip()
+        if not piece:
+            raise ValueError(f"--levels must be comma-separated integers, got {text!r}")
+        try:
+            levels.append(int(piece))
+        except ValueError:
+            raise ValueError(f"--levels must be comma-separated integers, got {text!r}") from None
+    return levels
+
+
+def cmd_scan(args) -> int:
+    """多级并发扫描：报「满足 SLO 的最高负载」。见 docs/papers.md C1。"""
+    if not math.isfinite(args.sample_interval) or args.sample_interval <= 0:
+        raise ValueError(f"--sample-interval must be finite and positive, got {args.sample_interval!r}")
+    levels = _parse_levels(args.levels)
+    sampler = _sampler_for(args)
+    last_client: dict | None = None
+
+    def run_level(level: int) -> dict:
+        nonlocal last_client
+        report = asyncio.run(
+            run_benchmark(
+                endpoint=args.endpoint,
+                model=args.model,
+                prompt=args.prompt,
+                # 每个 worker 至少能拿到一个请求，否则高并发的「并发」是假的
+                requests=max(args.requests, level),
+                concurrency=level,
+                max_tokens=args.max_tokens,
+                warmup=args.warmup,
+                timeout_s=args.timeout,
+                profile=args.profile,
+                api_key=args.api_key,
+                slo_ttft_ms=args.slo_ttft,
+                slo_tpot_ms=args.slo_tpot,
+                sampler=sampler,
+                sample_interval_s=args.sample_interval,
+            )
+        )
+        last_client = report.get("client")
+        return report
+
+    result = scan(
+        run_level,
+        levels,
+        slo_ttft_ms=args.slo_ttft,
+        slo_tpot_ms=args.slo_tpot,
+        slo_error_rate=args.slo_error_rate,
+    )
+    result["client"] = last_client  # 只保留最后一级的客户端读数（逐级数据在 levels[i]）
+    json_path, md_path = write_scan(result, args.output)
+    print(f"扫描报告：{json_path}  {md_path}")
+    best = result["slo_rps"]
+    if best is None:
+        print("ttftkit: 没有任何级别满足 SLO", file=sys.stderr)
+        return 1
+    print(f"满足 SLO 的最高负载：{round(best, 3)} req/s（首次违反：{result['stopped_at']}）")
+    return 0
+
+
 def cmd_gate(args) -> int:
     candidate = _load(args.report)
     policy = _load(args.policy)
@@ -129,6 +193,27 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--sample-interval", type=float, default=0.25,
                      help="采样间隔（秒），默认 0.25")
     run.set_defaults(func=cmd_run)
+
+    scan_cmd = sub.add_parser("scan", help="多级并发扫描：满足 SLO 的最高负载（SLO-qualified goodput）")
+    scan_cmd.add_argument("--endpoint", required=True)
+    scan_cmd.add_argument("--model", required=True)
+    scan_cmd.add_argument("--prompt", default=DEFAULT_PROMPT)
+    scan_cmd.add_argument("--levels", required=True, help="并发级别，升序逗号分隔，如 1,2,4,8")
+    scan_cmd.add_argument("--requests", type=int, default=16,
+                          help="每级请求数（不足该级并发时按并发数抬高）")
+    scan_cmd.add_argument("--max-tokens", type=int, default=32)
+    scan_cmd.add_argument("--warmup", type=int, default=0)
+    scan_cmd.add_argument("--timeout", type=float, default=60.0)
+    scan_cmd.add_argument("--profile", default="unspecified")
+    scan_cmd.add_argument("--slo-ttft", type=float, default=None, help="TTFT p95 上限（ms）")
+    scan_cmd.add_argument("--slo-tpot", type=float, default=None, help="TPOT p95 上限（ms）")
+    scan_cmd.add_argument("--slo-error-rate", type=float, default=0.0, help="错误率上限，默认 0")
+    scan_cmd.add_argument("--output", default="results/scan.json")
+    scan_cmd.add_argument("--api-key", default=os.environ.get("TTFTKIT_API_KEY"))
+    scan_cmd.add_argument("--gpu", choices=("auto", "none", "command"), default="auto")
+    scan_cmd.add_argument("--gpu-command", default=None)
+    scan_cmd.add_argument("--sample-interval", type=float, default=0.25)
+    scan_cmd.set_defaults(func=cmd_scan)
 
     gate = sub.add_parser("gate", help="按策略判定一份报告能否放行")
     gate.add_argument("report")

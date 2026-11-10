@@ -10,6 +10,7 @@ import httpx
 
 from .client import measure_request
 from .hardware import Collector, fingerprint
+from .lag import LagMonitor
 from .metrics import summarize
 from .models import RequestRecord
 
@@ -21,7 +22,7 @@ class BenchmarkFailed(Exception):
 async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
                         max_tokens=32, warmup=0, timeout_s=60, profile='unspecified', api_key=None,
                         slo_ttft_ms=None, slo_tpot_ms=None, sampler=None,
-                        sample_interval_s=0.25):
+                        sample_interval_s=0.25, capture_outputs=False):
     for key, value in [('requests', requests), ('concurrency', concurrency), ('max_tokens', max_tokens)]:
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise ValueError(f'{key} must be a positive integer')
@@ -62,7 +63,8 @@ async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
                     return
                 try:
                     rec = await measure_request(client, payload, index=index,
-                                                path=endpoint, timeout_s=timeout_s)
+                                                path=endpoint, timeout_s=timeout_s,
+                                                capture_text=capture_outputs)
                 except Exception as exc:  # 兜底：单请求的意外异常绝不能中断整批
                     rec = RequestRecord(index=index, ok=False, latency_ms=0.0,
                                         error=f'internal error: {type(exc).__name__}')
@@ -71,18 +73,41 @@ async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
         collector = Collector(sampler, interval_s=sample_interval_s) if sampler is not None else None
         if collector is not None:
             collector.start()  # 先采一次窗口起点，再开线程
+        # 客户端 lag 与负载同窗口采样：它衡量的是「这一轮的数字有多可信」，
+        # 不是服务端性能；放在窗口内才能抓住高并发下的客户端排队（papers.md A1）。
+        monitor = LagMonitor()
+        await monitor.start()
         start = time.perf_counter()
         await asyncio.gather(*(worker() for _ in range(workers)))
         duration = time.perf_counter() - start
+        lag_block = await monitor.stop()
+        # 统一形状：client 块与 hardware 块一样是「容器 + 子字段」，
+        # 下游（metrics/gate/report）一律读 client["lag_ms"]["p95_ms"]。
+        # 曾经直接塞平铺 stats，导致 client_lag_p95_ms 恒为 null（静默缺陷）。
+        client_block = ({"timing": "asyncio-event-loop", "lag_ms": lag_block}
+                        if lag_block is not None else None)
         hardware_block = collector.stop() if collector is not None else None
     records.sort(key=lambda r: r.started_at)
     config = {'protocol': 'openai-sse-v1', 'model': model, 'concurrency': concurrency,
               'max_tokens': max_tokens, 'requests': requests, 'warmup': warmup,
               'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(),
               'profile': profile, 'temperature': 0, 'timeout_s': timeout_s,
-              'hardware': fingerprint(hardware_block)}
-    return {'schema_version': 1, 'config': config, 'duration_s': duration,
-            'records': [asdict(r) for r in records],
-            'hardware': hardware_block,
-            'summary': summarize(records, duration, slo_ttft_ms=slo_ttft_ms,
-                                 slo_tpot_ms=slo_tpot_ms, hardware=hardware_block)}
+              'hardware': fingerprint(hardware_block),
+              'client_timing': 'asyncio-event-loop'}
+    if capture_outputs:
+        # invariance 闸的证据面：只收成功请求的输出文本，按请求序号排。
+        # 失败请求由 error_rate/失败预算规则管，这里不掺和。
+        config['capture_outputs'] = True
+        outputs = [{'index': r.index, 'text': r.output_text}
+                   for r in sorted(records, key=lambda x: x.index) if r.ok]
+    else:
+        outputs = None
+    report = {'schema_version': 1, 'kind': 'run', 'config': config, 'duration_s': duration,
+              'records': [asdict(r) for r in records],
+              'hardware': hardware_block, 'client': client_block,
+              'summary': summarize(records, duration, slo_ttft_ms=slo_ttft_ms,
+                                   slo_tpot_ms=slo_tpot_ms, hardware=hardware_block,
+                                   client=client_block)}
+    if outputs is not None:
+        report['outputs'] = outputs
+    return report

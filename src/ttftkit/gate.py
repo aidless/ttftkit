@@ -26,6 +26,7 @@ SCALAR_METRICS = (
     "mem_used_peak_mb",
     "mem_used_delta_mb",
     "gpu_util_peak_pct",
+    "client_lag_p95_ms",
 )
 # 硬件指标的相对比较只在同一块卡上有意义：显存总量不同 = 不可比
 HARDWARE_METRICS = frozenset({"mem_used_peak_mb", "mem_used_delta_mb", "gpu_util_peak_pct"})
@@ -36,6 +37,8 @@ _HW_FIELDS = {
     "gpu_util_peak_pct": "utilization_peak_pct",
 }
 MISSING_FINGERPRINTS = frozenset({"", "none", "None", "null"})
+# 报告类型：只有单次测量（run）可以过门禁；scan 是多级聚合，必须挑一级出来再判
+GATEABLE_KINDS = frozenset({"run"})
 KNOWN_METRICS = frozenset(
     [f"{m}.{f}" for m in DIST_METRICS for f in DIST_FIELDS] + list(SCALAR_METRICS)
 )
@@ -69,7 +72,7 @@ def _number(value, what: str) -> float:
 def _validate_rules(rules, baseline, candidate) -> dict:
     if not isinstance(rules, dict):
         raise _ConfigError("policy must be a JSON object")
-    unknown = set(rules) - {"limits", "regressions"}
+    unknown = set(rules) - {"limits", "regressions", "invariance"}
     if unknown:
         raise _ConfigError(f"unknown policy keys: {sorted(unknown)}")
     raw_limits = rules.get("limits", {})
@@ -79,7 +82,23 @@ def _validate_rules(rules, baseline, candidate) -> dict:
             raise _ConfigError(f"{key!r} must be a JSON object, got {type(value).__name__}")
     limits = raw_limits or {}
     regressions = raw_regressions or {}
-    if not limits and not regressions:
+    # invariance（batch 不变性）：同 prompt 不同 batch 下输出逐字节一致。
+    # 目前只支持 {"against_baseline": true}——candidate 输出必须与 baseline
+    # 逐字节一致；畸形策略是配置错误，不是「检查通过」。
+    raw_invariance = rules.get("invariance")
+    invariance = None
+    if raw_invariance is not None:
+        if not isinstance(raw_invariance, dict):
+            raise _ConfigError(f"'invariance' must be a JSON object, got {type(raw_invariance).__name__}")
+        unknown_inv = set(raw_invariance) - {"against_baseline"}
+        if unknown_inv:
+            raise _ConfigError(f"unknown invariance keys: {sorted(unknown_inv)}")
+        if raw_invariance.get("against_baseline") is not True:
+            raise _ConfigError("'invariance.against_baseline' must be true (only supported mode)")
+        if baseline is None:
+            raise _ConfigError("invariance policy requires a baseline report")
+        invariance = {"against_baseline": True}
+    if not limits and not regressions and invariance is None:
         raise _ConfigError("policy is empty: no rule would ever run")
 
     for name, value in limits.items():
@@ -96,7 +115,64 @@ def _validate_rules(rules, baseline, candidate) -> dict:
         if baseline is None:
             raise _ConfigError("relative policy requires a baseline report")
         _check_comparable(candidate, baseline, name)
-    return {"limits": limits, "regressions": regressions}
+    return {"limits": limits, "regressions": regressions, "invariance": invariance}
+
+
+# 不变性比较只要求「问的是同一个问题、用同一个模型、同一生成上限」；
+# concurrency/requests 是 batch 形态本身，允许（也应当）不同。
+INVARIANCE_CONFIG_KEYS = ("protocol", "model", "max_tokens", "prompt_sha256")
+
+
+def _check_invariance(candidate: dict, baseline: dict) -> dict | None:
+    """batch 不变性检查：两份报告的捕获输出必须逐字节一致。
+
+    fail-closed：任一侧缺 outputs、空 outputs、条目畸形、index 集不一致
+    都是「没测」→ _ConfigError（exit 2），绝不折成通过或 FAIL。
+    返回 PASS/FAIL 检查条目；证据问题直接抛 _ConfigError。
+    """
+    differing = [k for k in INVARIANCE_CONFIG_KEYS
+                 if candidate["config"][k] != baseline["config"][k]]
+    if differing:
+        raise _ConfigError(
+            f"measurements are not comparable for invariance: {differing} differ"
+        )
+    labeled = (("candidate", candidate), ("baseline", baseline))
+    for label, report in labeled:
+        outputs = report.get("outputs")
+        if not isinstance(outputs, list) or not outputs:
+            raise _ConfigError(
+                f"{label} report has no captured outputs — run the benchmark with "
+                "capture_outputs=True; missing evidence is not a pass"
+            )
+        for entry in outputs:
+            if not isinstance(entry, dict):
+                raise _ConfigError(f"{label} outputs entry must be an object: {entry!r}")
+            idx, text = entry.get("index"), entry.get("text")
+            if isinstance(idx, bool) or not isinstance(idx, int) or idx < 0:
+                raise _ConfigError(f"{label} outputs entry has invalid index: {idx!r}")
+            if not isinstance(text, str):
+                raise _ConfigError(f"{label} outputs[{idx}] text must be a string, got {type(text).__name__}")
+    cand_out = {e["index"]: e["text"] for e in candidate["outputs"]}
+    base_out = {e["index"]: e["text"] for e in baseline["outputs"]}
+    if set(cand_out) != set(base_out):
+        raise _ConfigError(
+            f"output index sets differ (candidate {sorted(cand_out)} vs baseline {sorted(base_out)}); "
+            "invariance needs the same prompts measured on both sides"
+        )
+    mismatched = sorted(i for i in cand_out if cand_out[i] != base_out[i])
+    if mismatched:
+        first = mismatched[0]
+        return {
+            "rule": "invariance", "kind": "invariance", "status": "FAIL",
+            "observed": f"{len(mismatched)}/{len(cand_out)} outputs differ",
+            "threshold": "0 differing outputs",
+            "reason": f"output[{first}] differs from baseline (batch changed the output)",
+        }
+    return {
+        "rule": "invariance", "kind": "invariance", "status": "PASS",
+        "observed": f"{len(cand_out)} outputs byte-identical to baseline",
+        "threshold": "0 differing outputs", "reason": "",
+    }
 
 
 def _check_comparable(candidate: dict, baseline: dict, metric: str) -> None:
@@ -263,6 +339,52 @@ def _check_hardware_evidence(report: dict, label: str) -> None:
         )
 
 
+def _check_client_evidence(report: dict, label: str) -> None:
+    """客户端 lag 读数必须能追溯到 client 块（与硬件证据同等待遇）。
+
+    没有这一步，报告可以只手写一个 `client_lag_p95_ms` 就宣称「客户端没问题」。
+    """
+    summary = report["summary"]
+    block = report.get("client")
+    claimed = summary.get("client_lag_p95_ms")
+    if block is None:
+        if claimed is not None:
+            raise _ConfigError(
+                f"{label} summary claims client_lag_p95_ms without a 'client' block"
+            )
+        return
+    if not isinstance(block, dict):
+        raise _ConfigError(f"{label} 'client' must be an object or null")
+    lag = block.get("lag_ms")
+    if lag is None:
+        if claimed is not None:
+            raise _ConfigError(
+                f"{label} summary claims client_lag_p95_ms but client.lag_ms is null"
+            )
+        return
+    if not isinstance(lag, dict):
+        raise _ConfigError(f"{label} client.lag_ms must be an object")
+    samples = lag.get("samples")
+    if isinstance(samples, bool) or not isinstance(samples, int) or samples < 0:
+        raise _ConfigError(
+            f"{label} client.lag_ms.samples must be a non-negative integer, got {samples!r}"
+        )
+    expected = lag.get("p95_ms")
+    if expected is None and claimed is None:
+        return
+    for value in (expected, claimed):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise _ConfigError(
+                f"{label} client_lag_p95_ms does not match client.lag_ms.p95_ms: "
+                f"{claimed!r} vs {expected!r}"
+            )
+    if abs(float(claimed) - float(expected)) > 1e-6:
+        raise _ConfigError(
+            f"{label} client_lag_p95_ms ({claimed!r}) disagrees with client.lag_ms.p95_ms "
+            f"({expected!r})"
+        )
+
+
 def _hardware_fingerprint(report: dict, label: str) -> str:
     """取可比较的硬件指纹；拿不到就 fail-closed（而不是当成同一块卡）。"""
     config = report.get("config")
@@ -329,7 +451,17 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
     checks: list[dict] = []
     reasons: list[str] = []
     try:
-        if not isinstance(candidate, dict) or not isinstance(candidate.get("summary"), dict):
+        if not isinstance(candidate, dict):
+            raise _ConfigError("candidate report must be a JSON object")
+        # 先判报告类型再判内容：scan 报告本来就没有 summary 段，
+        # 若先查 summary，报错会变成「缺 summary」而掩盖真正原因。
+        kind = candidate.get("kind", "run")
+        if kind not in GATEABLE_KINDS:
+            raise _ConfigError(
+                f"report kind {kind!r} is not gateable: scan reports aggregate several load "
+                "levels — pick one level (levels[i].summary) and gate it as a run report"
+            )
+        if not isinstance(candidate.get("summary"), dict):
             raise _ConfigError("candidate report has no summary block")
         policy = _validate_rules(rules, baseline, candidate)
     except _ConfigError as exc:
@@ -339,6 +471,7 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
     try:
         _validate_summary(summary)
         _check_hardware_evidence(candidate, "candidate")
+        _check_client_evidence(candidate, "candidate")
     except _ConfigError as exc:
         return {"exit_code": 2, "checks": [], "reasons": [str(exc)]}
 
@@ -351,6 +484,7 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
         try:
             _validate_summary(base)
             _check_hardware_evidence(baseline, "baseline")
+            _check_client_evidence(baseline, "baseline")
         except _ConfigError as exc:
             return {"exit_code": 2, "checks": [], "reasons": [f"baseline: {exc}"]}
         # 显存/利用率的比较只对同一块卡有意义（绝对上限同理：512 MB 的增长上限
@@ -366,6 +500,17 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
             if cand_hw != base_hw:
                 return {"exit_code": 2, "checks": [], "reasons": [
                     f"hardware differs ({cand_hw!r} vs {base_hw!r}): not comparable"]}
+
+    # batch 不变性：独立于延迟/吞吐类规则运行（即便两者都不在策略里也要执行）
+    if policy.get("invariance"):
+        try:
+            inv_check = _check_invariance(candidate, baseline)
+        except _ConfigError as exc:
+            return {"exit_code": 2, "checks": [], "reasons": [str(exc)]}
+        if inv_check is not None:
+            checks.append(inv_check)
+            if inv_check["status"] == "FAIL":
+                reasons.append(inv_check["reason"])
 
     failed = summary["requests"] - summary["successful_requests"]
     error_rate = summary["error_rate"]

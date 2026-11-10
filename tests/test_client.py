@@ -72,3 +72,36 @@ def test_timeout_is_classified(sse_base):
     rec = run(sse_base, "normal", timeout_s=0.01)
     assert rec.ok is False
     assert "timeout" in (rec.error or "").lower()
+
+
+class Test文本捕获:
+    """capture_text：invariance 闸的证据面。默认关（性能测量不存文本）。"""
+
+
+def _run_capture(sse_base, scenario="normal", **kwargs):
+    async def _go():
+        async with httpx.AsyncClient(base_url=f"{sse_base}/{scenario}") as client:
+            return await measure_request(client, PAYLOAD, index=0, **kwargs)
+    return asyncio.run(_go())
+
+
+def test默认不捕获_文本为None(sse_base):
+    rec = _run_capture(sse_base)
+    assert rec.ok is True
+    assert rec.output_text is None  # 不捕获不是空串：None=没测，""=测到空输出
+
+
+def test开启捕获_拼接全部content片段(sse_base):
+    rec = _run_capture(sse_base, capture_text=True)
+    assert rec.ok is True
+    assert rec.output_text == "abc"  # 三个片段 'a'+'b'+'c' 逐字节拼接
+
+
+def test开启捕获但无内容_空串而非None(sse_base):
+    # 'empty' 场景（无任何内容块）：ok=False + error "empty content"。
+    # 捕获开着 → output_text 必须是 ""（测了、没内容），绝不是 None（没测）。
+    # 这是 invariance 闸「缺证据 ≠ 通过」语义在客户端侧的镜像。
+    rec = _run_capture(sse_base, "empty", capture_text=True)
+    assert rec.ok is False
+    assert "empty content" in (rec.error or "")
+    assert rec.output_text == ""

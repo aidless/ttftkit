@@ -38,7 +38,7 @@ CASES = [
              'raise ValueError(f"invalid usage field: {what}")',
              'raise ValueError(f"invalid usage: {what}={value!r}")'),
             ("src/ttftkit/client.py",
-             'return _fail(index, t0, "unsuccessful finish_reason", latency_ms)',
+             'return _fail(index, t0, "unsuccessful finish_reason", latency_ms, output_text=captured)',
              'return _fail(index, t0, f"unsuccessful finish_reason: {finish_reason}", latency_ms)'),
         ],
         "tests/test_client_hardening.py::test_errors_do_not_echo_server_values",
@@ -85,6 +85,7 @@ CASES = [
              "        try:\n"
              "            _validate_summary(base)\n"
              "            _check_hardware_evidence(baseline, \"baseline\")\n"
+             "            _check_client_evidence(baseline, \"baseline\")\n"
              "        except _ConfigError as exc:\n"
              "            return {\"exit_code\": 2, \"checks\": [], \"reasons\": [f\"baseline: {exc}\"]}\n",
              ""),
@@ -108,12 +109,13 @@ CASES = [
             ("src/ttftkit/client.py",
              "    try:\n"
              "        return await asyncio.wait_for(\n"
-             "            _measure_once(client, payload, index=index, t0=t0, timeout_s=timeout_s, path=path),\n"  # noqa: E501
+             "            _measure_once(client, payload, index=index, t0=t0, timeout_s=timeout_s,\n"
+             "                          path=path, capture_text=capture_text),\n"  # noqa: E501
              "            timeout=timeout_s,\n"
              "        )\n"
              "    except asyncio.TimeoutError:\n"
              "        return _fail(index, t0, \"timeout\")\n",
-             "    return await _measure_once(client, payload, index=index, t0=t0, timeout_s=timeout_s, path=path)\n"),  # noqa: E501
+             "    return await _measure_once(client, payload, index=index, t0=t0, timeout_s=timeout_s, path=path, capture_text=capture_text)\n"),  # noqa: E501
         ],
         "tests/test_client_hardening.py::test_total_deadline_stops_slow_trickle "
         "tests/test_client_hardening.py::test_no_newline_trickle_hits_total_deadline",
@@ -449,6 +451,143 @@ CASES = [
              ''),
         ],
         "tests/test_cli.py::test_version_flag_prints_the_installed_version",
+    ),
+    (
+        "M31 空样本的 lag 统计必须是 null（不是 0）",
+        [
+            ("src/ttftkit/lag.py",
+             """    values = [float(v) for v in samples]
+    if not values:
+        return None
+""",
+             """    values = [float(v) for v in samples]
+    if not values:
+        return {"samples": 0, "interval_s": interval_s, "p50_ms": 0.0,
+                "p95_ms": 0.0, "max_ms": 0.0}
+"""),
+        ],
+        "tests/test_lag.py::test_lag_stats_empty_is_none_not_zero",
+    ),
+    (
+        "M32 lag 监视器必须真的测到事件循环被堵住",
+        [
+            ("src/ttftkit/lag.py",
+             '            lag_ms = (loop.time() - t0 - self.interval_s) * 1000.0\n',
+             '            lag_ms = 0.0\n'),
+        ],
+        "tests/test_lag.py::test_monitor_detects_a_blocked_event_loop",
+    ),
+    (
+        "M33 一旦违反 SLO 就停（不许继续往上扫）",
+        [
+            ("src/ttftkit/scan.py",
+             """        if bad:
+            stopped_at = level
+            break
+""",
+             """        if bad:
+            stopped_at = level
+"""),
+        ],
+        "tests/test_scan.py::test_scan_stops_at_first_violation_and_keeps_the_bad_level",
+    ),
+    (
+        "M34 缺证据（p95 为 null）不算满足 SLO",
+        [
+            ("src/ttftkit/scan.py",
+             """        if value is None:
+            found.append(f"{label} missing (no evidence)")
+        elif value > bound + 1e-9:
+            found.append(f"{label} {value:.1f} > {bound:.1f}")
+""",
+             """        if value is not None and value > bound + 1e-9:
+            found.append(f"{label} {value:.1f} > {bound:.1f}")
+"""),
+        ],
+        "tests/test_scan.py::test_missing_ttft_evidence_is_not_satisfied",
+    ),
+    (
+        "M35 scan 报告不能当单次测量过门禁",
+        [
+            ("src/ttftkit/gate.py",
+             """        kind = candidate.get("kind", "run")
+        if kind not in GATEABLE_KINDS:
+            raise _ConfigError(
+                f"report kind {kind!r} is not gateable: scan reports aggregate several load "
+                "levels — pick one level (levels[i].summary) and gate it as a run report"
+            )
+""",
+             ""),
+        ],
+        "tests/test_scan.py::test_gate_refuses_a_scan_report",
+    ),
+    (
+        "M36 summary 不能凭空声称客户端 lag（必须有 client 块）",
+        [
+            ("src/ttftkit/gate.py",
+             """    if block is None:
+        if claimed is not None:
+            raise _ConfigError(
+                f"{label} summary claims client_lag_p95_ms without a 'client' block"
+            )
+        return
+""",
+             """    if block is None:
+        return
+"""),
+        ],
+        "tests/test_client_lag_gate.py::test_summary_claiming_lag_without_a_client_block_is_configuration_error",
+    ),
+    (
+        "M37 bootstrap 必须用固定种子（否则每次 CI 判定不可复现）",
+        [
+            ("src/ttftkit/metrics.py",
+             "    rng = random.Random(seed)\n",
+             "    rng = random.Random()\n"),
+        ],
+        "tests/test_metrics_ci.py::test_bootstrap_threads_the_seed_into_the_rng "
+        "tests/test_metrics_ci.py::test_interval_is_deterministic",
+    ),
+    (
+        "M38 样本太少时不发置信区间",
+        [
+            ("src/ttftkit/metrics.py",
+             "               if len(data) >= MIN_CI_SAMPLES else None),\n",
+             "               if True else None),\n"),
+        ],
+        "tests/test_metrics_ci.py::test_small_sample_has_no_interval",
+    ),
+    (
+        "M39 client 块必须是容器（lag 统计放在 client.lag_ms 下）",
+        [
+            ("src/ttftkit/runner.py",
+             """        client_block = ({"timing": "asyncio-event-loop", "lag_ms": lag_block}
+                        if lag_block is not None else None)
+""",
+             "        client_block = lag_block\n"),
+        ],
+        "tests/test_lag.py::test_run_reports_client_lag_in_the_canonical_shape",
+    ),
+    (
+        "M40 invariance 必须真的逐字节比较输出（不是永远 PASS）",
+        [
+            ("src/ttftkit/gate.py",
+             "    mismatched = sorted(i for i in cand_out if cand_out[i] != base_out[i])",
+             "    mismatched: list[int] = []  # mutation: 不比较"),
+        ],
+        "tests/test_gate_invariance.py::test输出不一致_失败",
+    ),
+    (
+        "M41 缺 outputs 是配置错误（不是静默放行）",
+        [
+            ("src/ttftkit/gate.py",
+             '        outputs = report.get("outputs")\n'
+             "        if not isinstance(outputs, list) or not outputs:\n",
+             '        outputs = report.get("outputs")\n'
+             "        if False:\n"),
+        ],
+        "tests/test_gate_invariance.py::test缺outputs_是没测不是通过 "
+        "tests/test_gate_invariance.py::test空outputs_没测",
     ),
 ]
 

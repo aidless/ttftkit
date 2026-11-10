@@ -2,6 +2,40 @@
 
 格式按 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号按语义化版本。
 
+## [0.3.0] - 2026-11-01
+
+从「测一次」扩到「在约束下能撑多少」和「这一轮数字有多可信」。文献依据见 `docs/papers.md`。
+
+### 新增
+
+- **`ttftkit scan`**：多级并发逐级判 SLO（TTFT p95 / TPOT p95 / 错误率），输出
+  「满足 SLO 的最高负载」（SLO-qualified goodput）。违反的那一级保留在报告里（`stopped_at`、`violations`），
+  命中即停；缺 p95 记为不满足（`null` 不当通过）。`kind: "scan"` 报告不可过门禁 → 退出码 `2`。
+- **客户端事件循环 lag**（`src/ttftkit/lag.py`）：测量窗口内每 10 ms 采一次唤醒延迟，
+  报告新增「客户端（事件循环延迟）」段与 `summary.client_lag_p95_ms` 门禁标量；
+  `lag_p95 > 5% × TTFT p95` 时提示「这一轮延迟是测量上界」。样本为 0 时是 `null`。
+- **分位数 bootstrap 置信区间**：`distribution().ci` 给 p50/p95 的 95% 区间（种子固定 0、
+  迭代数入库），样本 < 20 条为 `null`。
+- **batch 不变性门禁**（`invariance` 规则）：策略加 `"invariance": {"against_baseline": true}` 并带
+  `--baseline`，要求 candidate 与 baseline 的捕获输出逐字节一致（同 prompt 跑 `concurrency=1`
+  与目标 batch 各一轮，`capture_outputs=True` 抓证据）。可比性只看 `protocol / model / max_tokens /
+  prompt_sha256`；任一侧缺 `outputs` 是「没测」→ 退出码 `2`，不是通过。
+- 门禁新增 `_check_client_evidence`：`client_lag_p95_ms` 必须能追溯到 `client` 块；
+  报告 `kind` 不是 `run` 直接判配置错误。
+
+### 变更
+
+- `run` 报告新增 `kind: "run"`、`client` 段与 `config.client_timing`。
+- 变异反证 32 → **41** 条（M31–M39，覆盖 lag/scan/CI/门禁来源校验，以及 client 块形状）。
+
+### 修复
+
+- **client 块形状的静默缺陷**：runner 一度把 `lag_stats()` 的平铺结果直接塞进 `report["client"]`，
+  而 metrics/gate/report 都按 `client["lag_ms"]["p95_ms"]` 读，导致 `summary.client_lag_p95_ms`
+  恒为 `null`、报告永远写「未取到 lag 样本」——整套客户端污染观测在真实运行里是死的，
+  单测却因「null 分支」全绿。现在 runner 统一产出容器形状，并由端到端用例 + M39 变异钉住。
+- `docs/papers.md` 的 A1 从「计划」改为「已实现（客户端 lag）」，A3 明确「`utilization.gpu` 只作负载指示」。
+
 ## [0.2.1] - 2026-11-01
 
 第二轮独立审阅（N4–N8）后的门禁加固。全部是 **fail-open** 方向的问题：报告能被改得比真实情况更好看。
