@@ -61,6 +61,9 @@ def cmd_run(args) -> int:
             slo_tpot_ms=args.slo_tpot,
             sampler=sampler,
             sample_interval_s=args.sample_interval,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            seed=args.seed,
         )
     )
     json_path, md_path = write(result, args.output)
@@ -192,6 +195,12 @@ def build_parser() -> argparse.ArgumentParser:
                      help="自定义采样命令（须输出 nvidia-smi CSV 格式），配合 --gpu command")
     run.add_argument("--sample-interval", type=float, default=0.25,
                      help="采样间隔（秒），默认 0.25")
+    run.add_argument("--temperature", type=float, default=0.0,
+                     help="采样温度，默认 0（贪心解码，历史行为）")
+    run.add_argument("--top-p", type=float, default=None,
+                     help="nucleus 采样 top_p（0,1]，缺省不发送")
+    run.add_argument("--seed", type=int, default=None,
+                     help="随机种子（非负整数），缺省不发送")
     run.set_defaults(func=cmd_run)
 
     scan_cmd = sub.add_parser("scan", help="多级并发扫描：满足 SLO 的最高负载（SLO-qualified goodput）")

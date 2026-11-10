@@ -589,6 +589,28 @@ CASES = [
         "tests/test_gate_invariance.py::test缺outputs_是没测不是通过 "
         "tests/test_gate_invariance.py::test空outputs_没测",
     ),
+    (
+        "M42 采样参数校验被拿掉 → 非法 temperature 静默通过",
+        [
+            ("src/ttftkit/runner.py",
+             "    if not isinstance(temperature, (int, float)) or isinstance(temperature, bool) \\\n"
+             "            or not (0 <= temperature <= 2):\n"
+             "        raise ValueError('temperature must be a number in [0, 2]')\n",
+             "    if False:\n"
+             "        raise ValueError('temperature must be a number in [0, 2]')\n"),
+        ],
+        "tests/test_runner_sampling.py::test非法temperature被拒",
+    ),
+    (
+        "M43 采样参数不进 config → 不同采样的报告假可比",
+        [
+            ("src/ttftkit/runner.py",
+             "              'profile': profile, 'temperature': temperature, 'timeout_s': timeout_s,\n"
+             "              'top_p': top_p, 'seed': seed,\n",
+             "              'profile': profile, 'temperature': 0, 'timeout_s': timeout_s,\n"),
+        ],
+        "tests/test_runner_sampling.py::test报告config带采样参数_可比性生效",
+    ),
 ]
 
 

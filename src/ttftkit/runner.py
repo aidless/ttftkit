@@ -22,7 +22,8 @@ class BenchmarkFailed(Exception):
 async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
                         max_tokens=32, warmup=0, timeout_s=60, profile='unspecified', api_key=None,
                         slo_ttft_ms=None, slo_tpot_ms=None, sampler=None,
-                        sample_interval_s=0.25, capture_outputs=False):
+                        sample_interval_s=0.25, capture_outputs=False,
+                        temperature=0, top_p=None, seed=None):
     for key, value in [('requests', requests), ('concurrency', concurrency), ('max_tokens', max_tokens)]:
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise ValueError(f'{key} must be a positive integer')
@@ -36,9 +37,23 @@ async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
     if bad_endpoint:
         raise ValueError('endpoint must be http(s), without userinfo, query or fragment')
     headers = {'Authorization': f'Bearer {api_key}'} if api_key else {}
+    # 采样参数：默认贪心（temperature=0，与历史行为一致）；显式传入才带 top_p/seed。
+    # 校验 fail-closed：非法值直接拒跑，不静默回退成贪心。
+    if not isinstance(temperature, (int, float)) or isinstance(temperature, bool) \
+            or not (0 <= temperature <= 2):
+        raise ValueError('temperature must be a number in [0, 2]')
+    if top_p is not None and (not isinstance(top_p, (int, float))
+                              or isinstance(top_p, bool) or not (0 < top_p <= 1)):
+        raise ValueError('top_p must be a number in (0, 1]')
+    if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool) or seed < 0):
+        raise ValueError('seed must be a nonnegative integer')
     payload = {'model': model, 'messages': [{'role': 'user', 'content': prompt}],
-               'max_tokens': max_tokens, 'temperature': 0, 'stream': True,
+               'max_tokens': max_tokens, 'temperature': temperature, 'stream': True,
                'stream_options': {'include_usage': True}}
+    if top_p is not None:
+        payload['top_p'] = top_p
+    if seed is not None:
+        payload['seed'] = seed
     limits = httpx.Limits(
         max_connections=concurrency, max_keepalive_connections=concurrency
     )
@@ -91,7 +106,8 @@ async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
     config = {'protocol': 'openai-sse-v1', 'model': model, 'concurrency': concurrency,
               'max_tokens': max_tokens, 'requests': requests, 'warmup': warmup,
               'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(),
-              'profile': profile, 'temperature': 0, 'timeout_s': timeout_s,
+              'profile': profile, 'temperature': temperature, 'timeout_s': timeout_s,
+              'top_p': top_p, 'seed': seed,
               'hardware': fingerprint(hardware_block),
               'client_timing': 'asyncio-event-loop'}
     if capture_outputs:
