@@ -23,7 +23,7 @@ async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
                         max_tokens=32, warmup=0, timeout_s=60, profile='unspecified', api_key=None,
                         slo_ttft_ms=None, slo_tpot_ms=None, sampler=None,
                         sample_interval_s=0.25, capture_outputs=False,
-                        temperature=0, top_p=None, seed=None):
+                        temperature=0, top_p=None, seed=None, prompts=None):
     for key, value in [('requests', requests), ('concurrency', concurrency), ('max_tokens', max_tokens)]:
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise ValueError(f'{key} must be a positive integer')
@@ -47,13 +47,36 @@ async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
         raise ValueError('top_p must be a number in (0, 1]')
     if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool) or seed < 0):
         raise ValueError('seed must be a nonnegative integer')
-    payload = {'model': model, 'messages': [{'role': 'user', 'content': prompt}],
-               'max_tokens': max_tokens, 'temperature': temperature, 'stream': True,
-               'stream_options': {'include_usage': True}}
-    if top_p is not None:
-        payload['top_p'] = top_p
-    if seed is not None:
-        payload['seed'] = seed
+    # 多 prompt 独立样本口径（verdict-matrix 补充发现 2）：单 prompt × 单 seed
+    # 的 N 个请求是同一 query 的 N 份拷贝，divergence_rate 的分母是槽位数
+    # 不是独立 query。prompts 给定时每请求用自己的 prompt、seed+i 独立种子。
+    if prompts is not None:
+        prompts = list(prompts)
+        if len(prompts) != requests:
+            raise ValueError(f'prompts must have exactly {requests} entries, got {len(prompts)}')
+        if not all(isinstance(p, str) and p for p in prompts):
+            raise ValueError('prompts entries must be nonempty strings')
+        request_prompts = prompts
+        request_seeds = [None if seed is None else seed + i for i in range(requests)]
+        prompt_sha256 = hashlib.sha256(
+            ''.join(hashlib.sha256(p.encode()).hexdigest() for p in prompts).encode()
+        ).hexdigest()
+    else:
+        request_prompts = [prompt] * requests
+        request_seeds = [seed] * requests
+        prompt_sha256 = hashlib.sha256(prompt.encode()).hexdigest()
+
+    def _payload_for(i):
+        payload = {'model': model, 'messages': [{'role': 'user', 'content': request_prompts[i]}],
+                   'max_tokens': max_tokens, 'temperature': temperature, 'stream': True,
+                   'stream_options': {'include_usage': True}}
+        if top_p is not None:
+            payload['top_p'] = top_p
+        if request_seeds[i] is not None:
+            payload['seed'] = request_seeds[i]
+        return payload
+
+    payload = _payload_for(0)
     limits = httpx.Limits(
         max_connections=concurrency, max_keepalive_connections=concurrency
     )
@@ -77,7 +100,7 @@ async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
                 if index is None:
                     return
                 try:
-                    rec = await measure_request(client, payload, index=index,
+                    rec = await measure_request(client, _payload_for(index), index=index,
                                                 path=endpoint, timeout_s=timeout_s,
                                                 capture_text=capture_outputs)
                 except Exception as exc:  # 兜底：单请求的意外异常绝不能中断整批
@@ -105,7 +128,7 @@ async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
     records.sort(key=lambda r: r.started_at)
     config = {'protocol': 'openai-sse-v1', 'model': model, 'concurrency': concurrency,
               'max_tokens': max_tokens, 'requests': requests, 'warmup': warmup,
-              'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(),
+              'prompt_sha256': prompt_sha256,
               'profile': profile, 'temperature': temperature, 'timeout_s': timeout_s,
               'top_p': top_p, 'seed': seed,
               'hardware': fingerprint(hardware_block),

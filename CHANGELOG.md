@@ -27,6 +27,11 @@
   逐字节一致 vs 采样 0.7+seed 7/8 一致（`results/invariance-2026-11-10/verdict-sampled.md`）。
 - `run` 采样参数：`--temperature / --top-p / --seed`（默认 temperature=0 贪心，历史行为不变）；
   采样参数进报告 `config`，不同采样路径的报告被判不可比。
+- **多 prompt 独立样本口径**：`run_benchmark(prompts=[...])` 每请求独立 prompt + `seed+i` 独立种子，
+  修掉「单 prompt × 单 seed 的 N 个请求是同一 query 的 N 份拷贝」导致的 divergence_rate 分母失真
+  （verdict-matrix 补充发现 2）；`prompt_sha256` 变为逐请求哈希串联。
+- **p99_basis**：count<20 的分布节点带 `"p99_basis": "max"`（p99 实际是最大值，verdict-matrix
+  补充发现 3）；gate 对 `*.p99` 上限规则自动附 basis 见证检查（不改判决）。
 - 门禁新增 `_check_client_evidence`：`client_lag_p95_ms` 必须能追溯到 `client` 块；
   报告 `kind` 不是 `run` 直接判配置错误。
 

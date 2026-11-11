@@ -632,6 +632,19 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
                            "reason": "metric missing or not a finite number"})
             reasons.append(f"{name}: no usable value")
             continue
+        # p99_basis 见证：n<20 时 p99 实际是最大值（verdict-matrix 补充发现 3）。
+        # 不改 PASS/FAIL（上限判定本身仍有效），但判决书必须带着这条出处，
+        # 防止「8 个样本的 p99」被当真分位数引用。
+        if name.endswith(".p99"):
+            prefix = name[:-len(".p99")]
+            node = summary.get(prefix)
+            if isinstance(node, dict) and node.get("p99_basis") == "max":
+                checks.append({
+                    "metric": name, "kind": "basis", "status": "PASS",
+                    "observed": f"p99 is the max of {node.get('count')} samples (n<20); "
+                                "quote median for latency conclusions",
+                    "threshold": limit, "reason": "",
+                })
         short = _insufficient_samples(summary, name)
         if short:
             checks.append({"metric": name, "kind": "limit", "status": "FAIL",

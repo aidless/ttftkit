@@ -629,6 +629,42 @@ CASES = [
         ],
         "tests/test_gate_stability.py::test采样参数不同_不可比",
     ),
+    (
+        "M46 p99_basis 恒标 quantile → max 伪影照常冒充分位数",
+        [
+            ("src/ttftkit/metrics.py",
+             "        \"p99_basis\": \"max\" if len(data) < 20 else \"quantile\",",
+             "        \"p99_basis\": \"quantile\","),
+        ],
+        "tests/test_metrics_p99_basis.py::test样本8_p99就是max_必须标注",
+    ),
+    (
+        "M47 gate basis 见证剥离 → max 伪影进判决书无人知晓",
+        [
+            ("src/ttftkit/gate.py",
+             "            if isinstance(node, dict) and node.get(\"p99_basis\") == \"max\":",
+             "            if False:"),
+        ],
+        "tests/test_gate_p99_basis.py::test样本不足_上限规则带basis见证",
+    ),
+    (
+        "M48 多 prompt 退回单 prompt 固定 payload → 独立样本口径失效",
+        [
+            ("src/ttftkit/runner.py",
+             "                    rec = await measure_request(client, _payload_for(index), index=index,",
+             "                    rec = await measure_request(client, payload, index=index,"),
+        ],
+        "tests/test_runner_multiprompt.py::test每请求用自己的prompt与seed加index",
+    ),
+    (
+        "M49 seed 不加 index → 每请求种子仍是同一枚",
+        [
+            ("src/ttftkit/runner.py",
+             "        request_seeds = [None if seed is None else seed + i for i in range(requests)]",
+             "        request_seeds = [seed] * requests"),
+        ],
+        "tests/test_runner_multiprompt.py::test每请求用自己的prompt与seed加index",
+    ),
 ]
 
 
