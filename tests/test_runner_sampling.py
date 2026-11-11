@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """采样参数支持（temperature / top_p / seed）的 RED→GREEN 测试。
 
 设计动机：invariance 实弹判决（2026-11-10）只覆盖贪心解码——runner 硬编码

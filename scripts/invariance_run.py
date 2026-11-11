@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """invariance 实弹脚本：同一服务下 c=1（基准）与 c=16（候选）各测一轮，捕获输出，出闸。
 
 用法：PYTHONPATH=src python3 scripts/invariance_run.py
@@ -11,8 +10,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from ttftkit.runner import run_benchmark
 from ttftkit.gate import evaluate
+from ttftkit.runner import run_benchmark
 
 OUT = Path(__file__).resolve().parent.parent / "results" / "invariance-2026-11-10"
 ENDPOINT = "http://127.0.0.1:8123/v1/chat/completions"

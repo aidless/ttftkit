@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """多 prompt 独立样本口径（prompts 参数 + 每请求独立 seed）的 RED→GREEN 测试。
 
 实测依据（verdict-matrix.md 补充发现 2）：单 prompt × 单 seed 的 8 个请求是

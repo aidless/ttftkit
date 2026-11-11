@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """p99_basis 标记（n<20 时 p99 是 max，不是分位数）的 RED→GREEN 测试。
 
 实测依据（verdict-matrix.md 补充发现 3）：8 样本的 p99 实际上是最大值

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """采样解码 invariance 实弹：seed 固定时 c=1 与 c=16 的输出是否一致？
 
 与贪心版（invariance_run.py）的唯一差别：temperature=0.7 + seed=1234。
@@ -12,8 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from ttftkit.runner import run_benchmark
 from ttftkit.gate import evaluate
+from ttftkit.runner import run_benchmark
 
 OUT = Path(__file__).resolve().parent.parent / "results" / "invariance-2026-11-10"
 ENDPOINT = "http://127.0.0.1:8123/v1/chat/completions"
@@ -57,7 +56,7 @@ def main() -> int:
     lines = [
         "# 采样解码 invariance 实弹判定（2026-11-10）",
         "",
-        f"- 与贪心版唯一差别：temperature=0.7, seed=1234（其余口径完全一致）",
+        "- 与贪心版唯一差别：temperature=0.7, seed=1234（其余口径完全一致）",
         f"- 逐字节一致：{same}/{len(bo)}",
         f"- c=1  TTFT p99={s1['ttft_ms']['p99']:.1f}ms  TPOT p99={s1['tpot_ms']['p99']:.1f}ms",
         f"- c=16 TTFT p99={s2['ttft_ms']['p99']:.1f}ms  TPOT p99={s2['tpot_ms']['p99']:.1f}ms",

@@ -244,12 +244,16 @@ def _check_stability(candidate: dict, baseline: dict, max_rate: float) -> dict:
         detail = ""
         if diverged:
             first = diverged[0]
-            pair = next(zip(base_out[first], cand_out[first]),
-                        (None, None))
-            pos = next((k for k, (a, b) in enumerate(zip(base_out[first], cand_out[first]))
-                        if a != b), None)
-            detail = (f"; output[{first}] first differs at char {pos}" if pos is not None
-                      else f"; output[{first}] length differs ({len(base_out[first])} vs {len(cand_out[first])})")
+            pos = next(
+                (k for k, (a, b) in enumerate(
+                    zip(base_out[first], cand_out[first], strict=False))
+                 if a != b),
+                None,
+            )
+            len_detail = (f"; output[{first}] length differs "
+                          f"({len(base_out[first])} vs {len(cand_out[first])})")
+            detail = (f"; output[{first}] first differs at char {pos}"
+                      if pos is not None else len_detail)
         return {
             "rule": "stability", "kind": "stability", "status": "FAIL",
             "observed": observed, "threshold": f"divergence_rate <= {max_rate:g}",

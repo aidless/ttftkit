@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """gate 对 p99_basis=max 的上限规则给出见证检查（不改判决）的 RED→GREEN 测试。
 
 n<20 时 p99 是 max（verdict-matrix.md 补充发现 3）。上限规则引用 *.p99 且

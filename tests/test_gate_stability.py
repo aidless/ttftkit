@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """采样解码分布稳定性闸（stability 规则）的 RED→GREEN 测试。
 
 设计动机（verdict-sampled.md 判决书第 2 条启示）：temperature>0 时逐字节
@@ -10,8 +9,6 @@ FAIL。采样解码需要另一把尺：**分歧率**（divergence_rate = 输出
 不同采样路径的报告放一起比分歧率是假比较。
 """
 from __future__ import annotations
-
-import pytest
 
 from ttftkit.gate import evaluate
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """invariance/stability 实弹矩阵：补 c=4 档 + 用 stability 闸重判采样轮。
 
 矩阵设计（2026-11-10）：
@@ -14,8 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from ttftkit.runner import run_benchmark
 from ttftkit.gate import evaluate
+from ttftkit.runner import run_benchmark
 
 OUT = Path(__file__).resolve().parent.parent / "results" / "invariance-2026-11-10"
 ENDPOINT = "http://127.0.0.1:8123/v1/chat/completions"

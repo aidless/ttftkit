@@ -5,8 +5,6 @@ fail-closed 口径：缺 outputs 证据 = 没测 = exit 2，绝不当通过。
 """
 import copy
 
-import pytest
-
 from ttftkit.gate import evaluate
 
 
