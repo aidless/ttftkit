@@ -688,7 +688,8 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
                 checks.append({
                     "metric": name, "kind": "basis", "status": "PASS",
                     "observed": f"p99 is dominated by the extreme sample(s) of {node.get('count')} samples "
-                                "(n<20, max-dominated, not a quantile estimate); quote p50 for latency conclusions",
+                                "(n<20, max-dominated, not a quantile estimate); "
+                                "quote p50 for latency conclusions",
                     "threshold": limit, "reason": "",
                 })
         short = _insufficient_samples(summary, name)

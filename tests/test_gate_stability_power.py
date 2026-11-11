@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """stability PASS 的统计功效见证（RED→GREEN）。
 
 查询级重跑（verdict-queries）发现：n=8 时 0/8 分歧判 PASS，但 Wilson 95%

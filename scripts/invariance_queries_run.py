@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """查询级分歧率实弹：多 prompt 独立样本口径重跑采样矩阵。
 
 与采样单 prompt 版（invariance_sampled_run.py）的差别：
@@ -19,7 +18,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from ttftkit.runner import run_benchmark
-from ttftkit.gate import evaluate, _wilson_upper, _min_n_zero_divergence
+
+from ttftkit.gate import _min_n_zero_divergence, _wilson_upper, evaluate
 
 OUT = Path(__file__).resolve().parent.parent / "results" / "invariance-2026-11-10"
 ENDPOINT = "http://127.0.0.1:8123/v1/chat/completions"
@@ -97,9 +97,11 @@ def main() -> int:
             f"## c=1 vs c={c}",
             f"- 分歧 {len(diff)}/{len(bo)}（rate={rate:.3f}）→ stability exit_code={v.get('exit_code')}"
             f"（{'PASS' if v.get('exit_code') == 0 else 'FAIL'}）",
-            f"- c=1  TTFT p50={s1['ttft_ms']['p50']:.1f}ms（n<20 的 p99={s1['ttft_ms']['p99']:.1f} 由末位样本主导，"
+            f"- c=1  TTFT p50={s1['ttft_ms']['p50']:.1f}ms"
+            f"（n<20 的 p99={s1['ttft_ms']['p99']:.1f} 由末位样本主导，"
             f"实测未必等于 max={s1['ttft_ms']['max']:.1f}，只引 p50）",
-            f"- c={c} TTFT p50={s2['ttft_ms']['p50']:.1f}ms（p99={s2['ttft_ms']['p99']:.1f}，max={s2['ttft_ms']['max']:.1f}）",
+            f"- c={c} TTFT p50={s2['ttft_ms']['p50']:.1f}ms"
+            f"（p99={s2['ttft_ms']['p99']:.1f}，max={s2['ttft_ms']['max']:.1f}）",
         ]
         if diff:
             lines.append(f"- 分歧槽位 index={diff}（每槽一条独立 query）")
@@ -120,9 +122,11 @@ def main() -> int:
         "",
         "## 统计功效：小样本的点估计不是达标证据",
         f"- n={len(bo)} 时 0/{len(bo)} 的 Wilson 95% 上界 = {upper0:.3f} > 上限 {cap:g}；"
-        f"1/{len(bo)} 的上界 = {upper1:.3f}；本轮最差档 {worst_k}/{len(bo)} 的上界 = {_wilson_upper(worst_k, len(bo)):.3f}。",
+        f"1/{len(bo)} 的上界 = {upper1:.3f}；"
+        f"本轮最差档 {worst_k}/{len(bo)} 的上界 = {_wilson_upper(worst_k, len(bo)):.3f}。",
         "  PASS 只说明点估计在限内，不足以声称 rate ≤ 上限；FAIL 同理只是本轮点估计越线。",
-        f"- 零分歧下把 Wilson 上界压到 {cap:g} 以下需 n≥{need} 条独立 query（gate 已自动附 power 见证，",
+        f"- 零分歧下把 Wilson 上界压到 {cap:g} 以下需 n≥{need} 条独立 query"
+        "（gate 已自动附 power 见证，",
         "  不改判决但写进 checks）。要判定这一档，实验应扩到该样本量以上的不同 prompt。",
         "- 分歧率对 query 组合和单轮 batch 时序都敏感（同一组 prompt 重跑读数会变），",
         "  报告必须声明口径与跑次；跨跑对照见 verdict-queries-multirun.md。",

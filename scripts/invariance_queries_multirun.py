@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """查询级矩阵跨跑对照：从落盘 JSON 重算全部数字，不依赖会话记忆。
 
 三次独立跑（runB / runC / runD）用同一组 8 条 prompt、同一 seed 基值：
@@ -12,7 +11,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ttftkit.gate import _wilson_upper, _min_n_zero_divergence
+from ttftkit.gate import _min_n_zero_divergence, _wilson_upper
 
 OUT = Path(__file__).resolve().parent.parent / "results" / "invariance-2026-11-10"
 TAGS = ["runB", "runC", "runD"]
@@ -75,13 +74,14 @@ def main():
         "- 同一 prompt+seed 在 c=1（无并发批处理）下逐字节一致数：",
     ]
     for k, v in base_same.items():
-        lines.append(f"  - {k}: {len(v)}/8 一致" + (f"，不一致 index={sorted(set(range(8))-set(v))}" if len(v) < 8 else ""))
+        note = f"，不一致 index={sorted(set(range(8)) - set(v))}" if len(v) < 8 else ""
+        lines.append(f"  - {k}: {len(v)}/8 一致" + note)
 
     # 每个 query 的翻转频次
     lines += ["", "## 逐 query 翻转频次（同一条 prompt 在 3 跑里被 batch 翻了几次）", ""]
     freq = {}
     for c in (4, 16):
-        cnt = {i: 0 for i in range(8)}
+        cnt = dict.fromkeys(range(8), 0)
         for tag in TAGS:
             for i in runs[tag]["diff"][c]:
                 cnt[i] += 1
@@ -102,7 +102,7 @@ def main():
         f"- 六格 rate 范围 {min(rates):.3f}–{max(rates):.3f}；"
         f"按 {CAP:g} 上限，三跑的 c=4/c=16 全部 FAIL 的有 "
         f"{sum(1 for r in rates if r > CAP)}/{len(rates)} 格（点估计口径）。",
-        f"- 但三次跑的是**同一组 8 条 query**，不是 24 条独立 query：样本量按 query 计仍是 8，",
+        "- 但三次跑的是**同一组 8 条 query**，不是 24 条独立 query：样本量按 query 计仍是 8，",
         "  重复跑只量到单轮 batch 时序的抖动，不能把分母乘 3。",
         f"- n=8、0/8 的 Wilson 95% 上界 = {upper0:.3f} > {CAP:g}；"
         f"零分歧下要压到 {CAP:g} 以下需 n≥{need} 条**不同** query（gate 的 power 见证同源）。",
