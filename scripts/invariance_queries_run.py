@@ -17,9 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from ttftkit.runner import run_benchmark
-
 from ttftkit.gate import _min_n_zero_divergence, _wilson_upper, evaluate
+from ttftkit.runner import run_benchmark
 
 OUT = Path(__file__).resolve().parent.parent / "results" / "invariance-2026-11-10"
 ENDPOINT = "http://127.0.0.1:8123/v1/chat/completions"

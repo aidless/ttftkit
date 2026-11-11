@@ -687,7 +687,8 @@ CASES = [
         "M52 Wilson 上界退化成点估计 → 小样本不确证被抹掉",
         [
             ("src/ttftkit/gate.py",
-             "    return (p + z2 / (2 * n) + z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))) / (1 + z2 / n)",
+             "    return (p + z2 / (2 * n) + z * math.sqrt("
+             "p * (1 - p) / n + z2 / (4 * n * n))) / (1 + z2 / n)",
              "    return p"),
         ],
         "tests/test_gate_stability_power.py::test样本少_PASS带power见证",
