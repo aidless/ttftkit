@@ -181,7 +181,7 @@ Ryzen 5800H / 无 GPU / ollama `qwen2.5-coder:0.5b`，3 请求、并发 1、`max
   在真实本地 SSE 服务上跑通（`tests/` 含真实本地 SSE 服务用例）。
 - 门禁**fail-closed**：指标缺失/`NaN`/`inf`/字符串/布尔 → 不通过；空策略/未知指标名 → 配置错误(`2`)；
   相对比较要求协议/模型/并发/token/请求数/prompt 哈希/指纹完全一致，否则不可比。
-- 已知退化**会被拦住**：`scripts/red_check.py` 逐条回退 41 处修复，对应用例全部变红（41/41），
+- 已知退化**会被拦住**：`scripts/red_check.py` 逐条回退 55 处修复，对应用例全部变红（55/55），
   证明这些判定不是摆设。
 - **SLO 扫描与客户端污染可判定**：`scan` 违反即停且保留坏级别、`null` 不当通过；`client.lag` 能测到人为阻塞（`time.sleep(0.08)` → `max_ms ≥ 30`），且门禁拒绝「summary 声称 lag 但没有 `client` 块」。
 - 硬件块**自洽且可溯源**：`delta == peak − baseline`、负数/超设备总量 → 配置错误、
@@ -210,7 +210,7 @@ python3 -m ruff check src tests scripts
 python3 scripts/red_check.py  # RED 反证：把修复回退后，对应测试必须变红
 ```
 
-`red_check.py` 是变异检查的自动化版本：在临时副本上逐条回退修复（TTFT 取值时机、门禁边界、吞吐分母、token 口径、坏 `choices`、总时限、错误串回显、非字符串 `content`、残缺报告、warmup 退出码、`count=0` 带分位数、显存 `null`→`0`、硬件可比性、影子门禁退出码、label 恒 PASS、利用率方向、stop 截断、单样本 delta、零样本块、指纹 `none`、证据链不一致、影子读坏输入、指纹溯源、截断读数、物理不可能值、Collector 参数、lag 空样本 `null`、lag 真能测到阻塞、扫描违反即停、缺证据不算通过、scan 不可过门禁、lag 无来源、bootstrap 种子、小样本不给区间、client 块形状），跑对应用例并断言它**失败**。当前 **41/41** 全部变红——修复若只是摆设，这一步会变绿并报错。
+`red_check.py` 是变异检查的自动化版本：在临时副本上逐条回退修复（TTFT 取值时机、门禁边界、吞吐分母、token 口径、坏 `choices`、总时限、错误串回显、非字符串 `content`、残缺报告、warmup 退出码、`count=0` 带分位数、显存 `null`→`0`、硬件可比性、影子门禁退出码、label 恒 PASS、利用率方向、stop 截断、单样本 delta、零样本块、指纹 `none`、证据链不一致、影子读坏输入、指纹溯源、截断读数、物理不可能值、Collector 参数、lag 空样本 `null`、lag 真能测到阻塞、扫描违反即停、缺证据不算通过、scan 不可过门禁、lag 无来源、bootstrap 种子、小样本不给区间、client 块形状），跑对应用例并断言它**失败**。当前 **55/55** 全部变红——修复若只是摆设，这一步会变绿并报错。
 
 按 JD 练习的路径见 [`docs/labs.md`](docs/labs.md)（10 个实验，每个都有可复跑的通过判据）；这些能力的文献依据与「哪些只是文档、哪些真实现了」见 [`docs/papers.md`](docs/papers.md)。
 
