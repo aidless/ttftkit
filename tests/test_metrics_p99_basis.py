@@ -1,6 +1,6 @@
 """p99_basis 标记（n<20 时 p99 是 max，不是分位数）的 RED→GREEN 测试。
 
-实测依据（verdict-matrix.md 补充发现 3）：8 样本的 p99 实际上是最大值
+实测依据（verdict-matrix.md 补充发现 3）：8 样本的 p99 由末位样本主导
 （greedy-c4: median 312.2 vs p99/max 583.3），跨会话把 c=4 判得比 c=16 还慢
 ——非单调是 max 伪影。报告必须如实标注 p99 的计算基础。
 """

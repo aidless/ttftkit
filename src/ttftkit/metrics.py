@@ -103,8 +103,9 @@ def distribution(values: Iterable[float]) -> dict | None:
         "p90": percentile(data, 0.90),
         "p95": percentile(data, 0.95),
         "p99": percentile(data, 0.99),
-        # n<20 时 p99 实际就是最大值（0.99 分位秩落在末位样本上），
-        # 如实标注，防止把 max 当分位数引用（verdict-matrix 补充发现 3）。
+        # n<20 时 p99 由末位 1–2 个样本主导（0.99 分位秩落在最大两个样本之间），
+        # 不是可分位估计，数值也未必等于 max（runD 实测 123.7 vs 123.9）。如实标注，
+        # 防止把 max 主导的尾部读数当分位数引用（verdict-matrix 补充发现 3）。
         "p99_basis": "max" if len(data) < 20 else "quantile",
         "stdev": stdev,
         "cv": (stdev / mean) if mean else None,

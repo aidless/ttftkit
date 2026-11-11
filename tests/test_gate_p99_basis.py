@@ -1,6 +1,6 @@
 """gate 对 p99_basis=max 的上限规则给出见证检查（不改判决）的 RED→GREEN 测试。
 
-n<20 时 p99 是 max（verdict-matrix.md 补充发现 3）。上限规则引用 *.p99 且
+n<20 时 p99 由末位样本主导（verdict-matrix.md 补充发现 3）。上限规则引用 *.p99 且
 样本不足时，gate 不改 PASS/FAIL，但必须在 checks 里留一条 basis 见证，
 让「用 8 个样本的 p99 当分位数做判决」在判决书里无所遁形。
 """

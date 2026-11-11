@@ -665,6 +665,42 @@ CASES = [
         ],
         "tests/test_runner_multiprompt.py::test每请求用自己的prompt与seed加index",
     ),
+    (
+        "M50 stability 功效见证被剥离 → 0/8 的 PASS 冒充 rate<=0.2 的证据",
+        [
+            ("src/ttftkit/gate.py",
+             "            if power is not None:",
+             "            if False:"),
+        ],
+        "tests/test_gate_stability_power.py::test样本少_PASS带power见证",
+    ),
+    (
+        "M51 功效见证永远附 → 样本充足/上限更宽时假报警",
+        [
+            ("src/ttftkit/gate.py",
+             "    if upper <= cap:",
+             "    if False:"),
+        ],
+        "tests/test_gate_stability_power.py::test样本足_PASS无power见证",
+    ),
+    (
+        "M52 Wilson 上界退化成点估计 → 小样本不确证被抹掉",
+        [
+            ("src/ttftkit/gate.py",
+             "    return (p + z2 / (2 * n) + z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))) / (1 + z2 / n)",
+             "    return p"),
+        ],
+        "tests/test_gate_stability_power.py::test样本少_PASS带power见证",
+    ),
+    (
+        "M53 所需样本数被写死 → 16 变成 2 的假处方",
+        [
+            ("src/ttftkit/gate.py",
+             "    need_str = f\"n>={need} zero-divergence queries needed\" if need is not None else \\",
+             "    need_str = \"n>=2 zero-divergence queries needed\" if need is not None else \\"),
+        ],
+        "tests/test_gate_stability_power.py::test样本少_PASS带power见证",
+    ),
 ]
 
 

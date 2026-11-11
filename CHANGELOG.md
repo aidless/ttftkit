@@ -30,8 +30,21 @@
 - **多 prompt 独立样本口径**：`run_benchmark(prompts=[...])` 每请求独立 prompt + `seed+i` 独立种子，
   修掉「单 prompt × 单 seed 的 N 个请求是同一 query 的 N 份拷贝」导致的 divergence_rate 分母失真
   （verdict-matrix 补充发现 2）；`prompt_sha256` 变为逐请求哈希串联。
-- **p99_basis**：count<20 的分布节点带 `"p99_basis": "max"`（p99 实际是最大值，verdict-matrix
-  补充发现 3）；gate 对 `*.p99` 上限规则自动附 basis 见证检查（不改判决）。
+- **p99_basis**：count<20 的分布节点带 `"p99_basis": "max"`（p99 由末位 1–2 个样本主导，
+  不是可分位估计，数值未必等于 max；verdict-matrix 补充发现 3）；gate 对 `*.p99`
+  上限规则自动附 basis 见证检查（不改判决）。
+- **stability 功效见证**：PASS 时若分歧率的 Wilson 95% 上界仍超过上限，gate 自动附
+  kind=power 见证（不改判决）并给出所需样本数。实测 n=8、0/8 分歧、上限 0.2 的
+  Wilson 上界 0.324，零分歧下需 n≥16；查询级重跑见 results/.../verdict-queries.md。
+- **查询级矩阵跨跑留档**：`invariance_queries_run.py <tag>` 每跑写独立证据文件
+  （此前无 tag 的首次跑被后续跑覆盖，已作为「转引层」如实标注）；
+  `invariance_queries_multirun.py` 从落盘 JSON 现算三跑对照。稳定读数
+  c=4 分歧 3/8、c=16 分歧 4/8，c=1 baseline 跨跑 8/8 可复现；重复跑同组
+  8 条 query 不等于 24 个独立样本。判决书 verdict-queries-multirun.md。
+- **p99 见证文案修正**：`p99 is the max of N samples` 改为「由末位样本主导、
+  不是可分位估计」（canonical runD 实测 p99 123.7 vs max 123.9 反例）。
+- **口径修正**：查询级重跑给出反例 p99=385.6 vs max=399.1，旧表述「p99 就是 max」
+  收紧为「由末位样本主导」，代码注释、README、basis 见证文案同步修正。
 - 门禁新增 `_check_client_evidence`：`client_lag_p95_ms` 必须能追溯到 `client` 块；
   报告 `kind` 不是 `run` 直接判配置错误。
 

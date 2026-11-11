@@ -1,0 +1,110 @@
+{
+ "policy": {
+  "limits": {
+   "ttft_ms.p99": 2000.0,
+   "tpot_ms.p99": 200.0
+  },
+  "stability": {
+   "against_baseline": true,
+   "max_divergence_rate": 0.2
+  }
+ },
+ "verdicts": {
+  "c4": {
+   "exit_code": 1,
+   "checks": [
+    {
+     "rule": "stability",
+     "kind": "stability",
+     "status": "FAIL",
+     "observed": "3/8 outputs diverge (rate 0.375)",
+     "threshold": "divergence_rate <= 0.2",
+     "reason": "divergence_rate 0.375 exceeds cap 0.2; output[0] first differs at char 46"
+    },
+    {
+     "metric": "ttft_ms.p99",
+     "kind": "basis",
+     "status": "PASS",
+     "observed": "p99 is dominated by the extreme sample(s) of 8 samples (n<20, max-dominated, not a quantile estimate); quote p50 for latency conclusions",
+     "threshold": 2000.0,
+     "reason": ""
+    },
+    {
+     "metric": "ttft_ms.p99",
+     "kind": "limit",
+     "status": "PASS",
+     "observed": 188.74158856342547,
+     "threshold": 2000.0,
+     "reason": ""
+    },
+    {
+     "metric": "tpot_ms.p99",
+     "kind": "basis",
+     "status": "PASS",
+     "observed": "p99 is dominated by the extreme sample(s) of 8 samples (n<20, max-dominated, not a quantile estimate); quote p50 for latency conclusions",
+     "threshold": 200.0,
+     "reason": ""
+    },
+    {
+     "metric": "tpot_ms.p99",
+     "kind": "limit",
+     "status": "PASS",
+     "observed": 55.46286735075937,
+     "threshold": 200.0,
+     "reason": ""
+    }
+   ],
+   "reasons": [
+    "divergence_rate 0.375 exceeds cap 0.2; output[0] first differs at char 46"
+   ]
+  },
+  "c16": {
+   "exit_code": 1,
+   "checks": [
+    {
+     "rule": "stability",
+     "kind": "stability",
+     "status": "FAIL",
+     "observed": "4/8 outputs diverge (rate 0.500)",
+     "threshold": "divergence_rate <= 0.2",
+     "reason": "divergence_rate 0.500 exceeds cap 0.2; output[0] first differs at char 46"
+    },
+    {
+     "metric": "ttft_ms.p99",
+     "kind": "basis",
+     "status": "PASS",
+     "observed": "p99 is dominated by the extreme sample(s) of 8 samples (n<20, max-dominated, not a quantile estimate); quote p50 for latency conclusions",
+     "threshold": 2000.0,
+     "reason": ""
+    },
+    {
+     "metric": "ttft_ms.p99",
+     "kind": "limit",
+     "status": "PASS",
+     "observed": 155.2947029902134,
+     "threshold": 2000.0,
+     "reason": ""
+    },
+    {
+     "metric": "tpot_ms.p99",
+     "kind": "basis",
+     "status": "PASS",
+     "observed": "p99 is dominated by the extreme sample(s) of 8 samples (n<20, max-dominated, not a quantile estimate); quote p50 for latency conclusions",
+     "threshold": 200.0,
+     "reason": ""
+    },
+    {
+     "metric": "tpot_ms.p99",
+     "kind": "limit",
+     "status": "PASS",
+     "observed": 51.82737722664734,
+     "threshold": 200.0,
+     "reason": ""
+    }
+   ],
+   "reasons": [
+    "divergence_rate 0.500 exceeds cap 0.2; output[0] first differs at char 46"
+   ]
+  }
+ }
+}

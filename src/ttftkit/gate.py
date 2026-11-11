@@ -200,7 +200,44 @@ def _check_invariance(candidate: dict, baseline: dict) -> dict | None:
 STABILITY_CONFIG_KEYS = INVARIANCE_CONFIG_KEYS + ("temperature", "top_p", "seed")
 
 
-def _check_stability(candidate: dict, baseline: dict, max_rate: float) -> dict:
+def _wilson_upper(k: int, n: int, z: float = 1.96) -> float:
+    """二项比例 Wilson 95% 上界。n 小时点估计 k/n 的 PASS 不等于置信结论。"""
+    p = k / n
+    z2 = z * z
+    return (p + z2 / (2 * n) + z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))) / (1 + z2 / n)
+
+
+def _min_n_zero_divergence(cap: float) -> int | None:
+    """零分歧时把 Wilson 上界压到 cap 以下所需的最小样本数；cap<=0 无解。"""
+    if cap <= 0:
+        return None
+    for n in range(1, 10000):
+        if _wilson_upper(0, n) < cap:
+            return n
+    return None
+
+
+def _power_witness(k: int, n: int, cap: float) -> dict | None:
+    """stability PASS 的功效见证：上界仍超过上限时，把「PASS 不是证据」写进判决书。
+
+    与 basis 见证同款：不改 PASS/FAIL（判决按点估计），只禁止把小样本 PASS
+    读成「分歧率 ≤ 上限」。实测依据见 results/invariance-2026-11-10/verdict-queries-multirun.md。
+    """
+    upper = _wilson_upper(k, n)
+    if upper <= cap:
+        return None
+    need = _min_n_zero_divergence(cap)
+    need_str = f"n>={need} zero-divergence queries needed" if need is not None else \
+               "no finite n resolves a zero cap; quote the upper bound"
+    return {
+        "rule": "stability", "kind": "power", "status": "PASS",
+        "observed": (f"PASS on {k}/{n} divergences is not evidence rate<={cap:g}: "
+                     f"Wilson 95% upper={upper:.3f}; {need_str}"),
+        "threshold": cap, "reason": "",
+    }
+
+
+def _check_stability(candidate: dict, baseline: dict, max_rate: float) -> tuple[dict, int, int]:
     """采样解码分布稳定性检查：分歧率 = 与 baseline 不一致的输出占比 ≤ max_rate。
 
     fail-closed 与 invariance 同款：缺 outputs/畸形条目/index 集不一致都是
@@ -258,12 +295,12 @@ def _check_stability(candidate: dict, baseline: dict, max_rate: float) -> dict:
             "rule": "stability", "kind": "stability", "status": "FAIL",
             "observed": observed, "threshold": f"divergence_rate <= {max_rate:g}",
             "reason": f"divergence_rate {rate:.3f} exceeds cap {max_rate:g}{detail}",
-        }
+        }, len(diverged), len(cand_out)
     return {
         "rule": "stability", "kind": "stability", "status": "PASS",
         "observed": observed, "threshold": f"divergence_rate <= {max_rate:g}",
         "reason": "",
-    }
+    }, len(diverged), len(cand_out)
 
 
 def _check_comparable(candidate: dict, baseline: dict, metric: str) -> None:
@@ -606,13 +643,17 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
     # 采样解码分布稳定性：与 invariance 互斥使用（逐字节一致 vs 分歧率上限）
     if policy.get("stability"):
         try:
-            st_check = _check_stability(
+            st_check, st_k, st_n = _check_stability(
                 candidate, baseline, policy["stability"]["max_divergence_rate"])
         except _ConfigError as exc:
             return {"exit_code": 2, "checks": [], "reasons": [str(exc)]}
         checks.append(st_check)
         if st_check["status"] == "FAIL":
             reasons.append(st_check["reason"])
+        else:
+            power = _power_witness(st_k, st_n, policy["stability"]["max_divergence_rate"])
+            if power is not None:
+                checks.append(power)
 
     failed = summary["requests"] - summary["successful_requests"]
     error_rate = summary["error_rate"]
@@ -636,7 +677,8 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
                            "reason": "metric missing or not a finite number"})
             reasons.append(f"{name}: no usable value")
             continue
-        # p99_basis 见证：n<20 时 p99 实际是最大值（verdict-matrix 补充发现 3）。
+        # p99_basis 见证：n<20 时 p99 由末位 1–2 个样本主导、不是可分位估计
+        #（verdict-matrix 补充发现 3；canonical runD 实测 p99 123.7 vs max 123.9）。
         # 不改 PASS/FAIL（上限判定本身仍有效），但判决书必须带着这条出处，
         # 防止「8 个样本的 p99」被当真分位数引用。
         if name.endswith(".p99"):
@@ -645,8 +687,8 @@ def evaluate(candidate: dict, rules: dict, baseline: dict | None = None) -> dict
             if isinstance(node, dict) and node.get("p99_basis") == "max":
                 checks.append({
                     "metric": name, "kind": "basis", "status": "PASS",
-                    "observed": f"p99 is the max of {node.get('count')} samples (n<20); "
-                                "quote median for latency conclusions",
+                    "observed": f"p99 is dominated by the extreme sample(s) of {node.get('count')} samples "
+                                "(n<20, max-dominated, not a quantile estimate); quote p50 for latency conclusions",
                     "threshold": limit, "reason": "",
                 })
         short = _insufficient_samples(summary, name)
