@@ -687,11 +687,11 @@ CASES = [
         "M52 Wilson 上界退化成点估计 → 小样本不确证被抹掉",
         [
             ("src/ttftkit/gate.py",
-             "    return (p + z2 / (2 * n) + z * math.sqrt("
-             "p * (1 - p) / n + z2 / (4 * n * n))) / (1 + z2 / n)",
-             "    return p"),
+             "    return wilson_interval(k, n, z)[1]",
+             "    return k / n"),
         ],
-        "tests/test_gate_stability_power.py::test样本少_PASS带power见证",
+        "tests/test_gate_stability_power.py::test样本少_PASS带power见证 "
+        "tests/test_gate_wilson.py::TestWilsonInterval::test_零分歧时上界随样本量收紧",
     ),
     (
         "M53 所需样本数被写死 → 16 变成 2 的假处方",
@@ -701,6 +701,62 @@ CASES = [
              "    need_str = \"n>=2 zero-divergence queries needed\" if need is not None else \\"),
         ],
         "tests/test_gate_stability_power.py::test样本少_PASS带power见证",
+    ),
+    (
+        "M56 判词恒为决定性通过 → 区间跨阈值也报 PASS",
+        [
+            ("src/ttftkit/gate.py",
+             "    if hi < cap:",
+             "    if True:"),
+        ],
+        "tests/test_gate_wilson.py::TestDecisiveness::test_区间跨过上限判不了 "
+        "tests/test_gate_wilson.py::TestDecisiveness::test_下界高于上限判决定性失败",
+    ),
+    (
+        "M57 零样本返回零宽区间 → 无证据被读成零分歧",
+        [
+            ("src/ttftkit/gate.py",
+             "    if n == 0:\n        return (0.0, 1.0)",
+             "    if n == 0:\n        return (0.0, 0.0)"),
+        ],
+        "tests/test_gate_wilson.py::TestWilsonInterval::test_样本为零时返回全区间而不是零宽",
+    ),
+    (
+        "M58 下界不夹到零 → 区间下界出现负数",
+        [
+            ("src/ttftkit/gate.py",
+             "    return (max(0.0, centre - half), min(1.0, centre + half))",
+             "    return (centre - half, min(1.0, centre + half))"),
+        ],
+        "tests/test_gate_wilson.py::TestWilsonInterval::test_端点必须精确夹在零到一之间",
+    ),
+    (
+        "M59 非法计数不校验 → k>n 静默算出假区间",
+        [
+            ("src/ttftkit/gate.py",
+             "    if n < 0 or k < 0 or k > n:\n        raise ValueError(f'invalid binomial counts: k={k}, n={n}')",
+             "    if False:\n        raise ValueError(f'invalid binomial counts: k={k}, n={n}')"),
+        ],
+        "tests/test_gate_wilson.py::TestWilsonInterval::test_非法计数抛ValueError",
+    ),
+    (
+        "M60 prompt 集合混入重复条 → 分母被做假成 39",
+        [
+            ("scripts/invariance_queries40_run.py",
+             '    "如果两次基准的读数差异很大，应该先怀疑什么？三句话。",',
+             '    "用三句话解释 KV cache 为什么能让 LLM 推理变快。",'),
+        ],
+        "tests/test_queries40_prompts.py::test_prompt两两不同 "
+        "tests/test_queries40_prompts.py::test_prompt条数等于声明的样本量",
+    ),
+    (
+        "M61 样本量声明与集合长度脱钩 → 40 写成 39 也照跑",
+        [
+            ("scripts/invariance_queries40_run.py",
+             "N = 40",
+             "N = 39"),
+        ],
+        "tests/test_queries40_prompts.py::test_prompt条数等于声明的样本量",
     ),
 ]
 

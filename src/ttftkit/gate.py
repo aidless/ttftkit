@@ -200,11 +200,45 @@ def _check_invariance(candidate: dict, baseline: dict) -> dict | None:
 STABILITY_CONFIG_KEYS = INVARIANCE_CONFIG_KEYS + ("temperature", "top_p", "seed")
 
 
-def _wilson_upper(k: int, n: int, z: float = 1.96) -> float:
-    """二项比例 Wilson 95% 上界。n 小时点估计 k/n 的 PASS 不等于置信结论。"""
+def wilson_interval(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """二项比例的 Wilson 区间（默认 95%）。
+
+    为什么不用 k/n ± 正态近似：小样本下正态近似在 0 与 1 附近会给出
+    负的下界或超过 1 的上界，而这里天天在判「0/40 到底算不算证据」。
+    n=0 返回 (0.0, 1.0) —— 无证据不等于零分歧，调用方必须自己降级。
+    """
+    if n < 0 or k < 0 or k > n:
+        raise ValueError(f'invalid binomial counts: k={k}, n={n}')
+    if n == 0:
+        return (0.0, 1.0)
     p = k / n
     z2 = z * z
-    return (p + z2 / (2 * n) + z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))) / (1 + z2 / n)
+    denom = 1 + z2 / n
+    centre = (p + z2 / (2 * n)) / denom
+    half = z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n)) / denom
+    return (max(0.0, centre - half), min(1.0, centre + half))
+
+
+def decisiveness(k: int, n: int, cap: float, z: float = 1.96) -> str:
+    """把区间折成判词：这个读数的 PASS/FAIL 是总体结论还是只是点估计。
+
+    PASS_DECISIVE：上界 < cap，数据足以宣称「分歧率 ≤ cap」。
+    FAIL_DECISIVE：下界 > cap，数据足以宣称「分歧率 > cap」。
+    NOT_DECISIVE ：区间跨过 cap，样本量不够，只能报区间不能报结论。
+    """
+    if not math.isfinite(cap) or cap < 0 or cap > 1:
+        raise ValueError(f'cap must be a finite number in [0, 1], got {cap}')
+    lo, hi = wilson_interval(k, n, z)
+    if hi < cap:
+        return "PASS_DECISIVE"
+    if lo > cap:
+        return "FAIL_DECISIVE"
+    return "NOT_DECISIVE"
+
+
+def _wilson_upper(k: int, n: int, z: float = 1.96) -> float:
+    """二项比例 Wilson 95% 上界。n 小时点估计 k/n 的 PASS 不等于置信结论。"""
+    return wilson_interval(k, n, z)[1]
 
 
 def _min_n_zero_divergence(cap: float) -> int | None:

@@ -17,3 +17,4 @@ results/*
 !.env.example
 *.nsys-rep
 *.sqlite
+results/invariance-2026-11-10/serve-*.log
