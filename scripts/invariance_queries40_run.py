@@ -108,29 +108,18 @@ def dump(obj: dict, name: str) -> None:
     (OUT / name).write_text(json.dumps(obj, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def main() -> int:
-    print(f"[1/5] baseline c=1（第一次，{N} 条独立 prompt）…", flush=True)
-    b1 = asyncio.run(one_round(1))
-    dump(b1, f"baseline-c1a-queries40{S}.json")
+DEFAULT_POLICY = {
+    "limits": {"ttft_ms.p99": 2000.0, "tpot_ms.p99": 200.0},
+    "stability": {"against_baseline": True, "max_divergence_rate": CAP},
+}
 
-    policy = {
-        "limits": {"ttft_ms.p99": 2000.0, "tpot_ms.p99": 200.0},
-        "stability": {"against_baseline": True, "max_divergence_rate": CAP},
-    }
 
-    verdicts: dict[str, dict] = {}
-    candidates: dict[str, dict] = {}
-    for step, c in enumerate([4, 16], start=2):
-        print(f"[{step}/5] candidate c={c} …", flush=True)
-        cand = asyncio.run(one_round(c))
-        dump(cand, f"candidate-c{c}-queries40{S}.json")
-        candidates[f"c{c}"] = cand
-        verdicts[f"c{c}"] = evaluate(cand, policy, baseline=b1)
+def build_report(b1: dict, b2: dict, candidates: dict, policy: dict) -> tuple[dict, list]:
+    """把两轮 baseline 与候选轮组装成（报告, 逐候选行）。
 
-    print("[4/5] baseline c=1（第二次，验证跨跑可复现）…", flush=True)
-    b2 = asyncio.run(one_round(1))
-    dump(b2, f"baseline-c1b-queries40{S}.json")
-
+    纯函数，不碰网络也不碰盘：实弹要 GPU，但「分母算得对不对 / 判词给得对不对」
+    不该等到真跑 15 分钟后才知道（见 tests/test_queries40_report.py）。
+    """
     # baseline 跨跑逐字节比对：不一致说明服务状态漂移，本跑的分歧率不可解读。
     o1 = {o["index"]: o["text"] for o in b1.get("outputs", [])}
     o2 = {o["index"]: o["text"] for o in b2.get("outputs", [])}
@@ -142,7 +131,7 @@ def main() -> int:
     for key, cand in candidates.items():
         co = {o["index"]: o["text"] for o in cand.get("outputs", [])}
         flipped = sorted(i for i in o1 if i in co and o1[i] != co[i])
-        v = verdicts[key]
+        v = evaluate(cand, policy, baseline=b1)
         stab = next((ch for ch in v["checks"] if ch["kind"] == "stability"), None)
         k = len(flipped)
         lo, hi = wilson_interval(k, N)
@@ -176,7 +165,29 @@ def main() -> int:
         "baseline_ttft_ms_p99_rerun": b2["metrics"]["ttft_ms"]["p99"],
         "rows": rows,
     }
+    return report, rows
+
+
+def main() -> int:
+    print(f"[1/5] baseline c=1（第一次，{N} 条独立 prompt）…", flush=True)
+    b1 = asyncio.run(one_round(1))
+    dump(b1, f"baseline-c1a-queries40{S}.json")
+
+    candidates: dict[str, dict] = {}
+    for step, c in enumerate([4, 16], start=2):
+        print(f"[{step}/5] candidate c={c} …", flush=True)
+        cand = asyncio.run(one_round(c))
+        dump(cand, f"candidate-c{c}-queries40{S}.json")
+        candidates[f"c{c}"] = cand
+
+    print("[4/5] baseline c=1（第二次，验证跨跑可复现）…", flush=True)
+    b2 = asyncio.run(one_round(1))
+    dump(b2, f"baseline-c1b-queries40{S}.json")
+
+    report, rows = build_report(b1, b2, candidates, DEFAULT_POLICY)
     dump(report, f"verdict-queries40{S}.json")
+    baseline_reproducible = report["baseline_reproducible"]
+    baseline_drift = report["baseline_drift_indices"]
 
     lines = [
         f"# 40 条独立 query 的采样分歧率（2026-11-10 起，tag={TAG or 'canonical'}）",
