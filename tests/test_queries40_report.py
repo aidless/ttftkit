@@ -47,7 +47,7 @@ def _report(concurrency: int, texts: list[str]) -> dict:
     return {
         "config": _cfg(concurrency),
         "outputs": [{"index": i, "text": t} for i, t in enumerate(texts)],
-        "metrics": {
+        "summary": {
             "ttft_ms": {"p50": 120.0, "p99": 400.0},
             "tpot_ms": {"p50": 40.0, "p99": 45.0},
         },
@@ -107,3 +107,17 @@ def test_十五个翻转是决定性FAIL(q40):
     assert rows[0]["decisiveness"] == "FAIL_DECISIVE"
     assert rows[0]["wilson_low"] > q40.CAP
     assert rows[0]["gate_exit"] != 0
+
+
+def test_build_report_只读真实报告字段(q40):
+    """夹具曾经自造一个 run_benchmark 从不产出的 "metrics" 键，于是单测全绿、真跑 KeyError。
+
+    真报告的延迟在 summary 里（results/**/*.json 的顶层键为
+    schema_version/kind/config/duration_s/records/hardware/client/summary/outputs）。
+    这条断言把「读哪个键」钉在代码上，别再让夹具替生产代码发明字段。
+    """
+    import inspect
+
+    src = inspect.getsource(q40.build_report)
+    assert '["metrics"]' not in src and "['metrics']" not in src, \
+        "build_report 读了不存在的 metrics 键：run_benchmark 把延迟放在 summary 里"

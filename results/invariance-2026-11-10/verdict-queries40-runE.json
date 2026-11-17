@@ -1,0 +1,60 @@
+{
+ "tag": "runE",
+ "policy": {
+  "limits": {
+   "ttft_ms.p99": 2000.0,
+   "tpot_ms.p99": 200.0
+  },
+  "stability": {
+   "against_baseline": true,
+   "max_divergence_rate": 0.2
+  }
+ },
+ "n_query": 40,
+ "cap": 0.2,
+ "baseline_reproducible": true,
+ "baseline_drift_indices": [],
+ "baseline_ttft_ms_p50": 176.85526449895406,
+ "baseline_ttft_ms_p99": 292.5134721995527,
+ "baseline_tpot_ms_p50": 61.14977881496475,
+ "baseline_ttft_ms_p50_rerun": 164.84190700066392,
+ "baseline_ttft_ms_p99_rerun": 269.7727920097168,
+ "rows": [
+  {
+   "candidate": "c4",
+   "concurrency": 4,
+   "diverged": 2,
+   "total": 40,
+   "rate": 0.05,
+   "wilson_low": 0.013820377146101098,
+   "wilson_high": 0.165041708179252,
+   "decisiveness": "PASS_DECISIVE",
+   "gate_exit": 0,
+   "gate_reasons": [],
+   "power_witness": [],
+   "flipped_indices": [
+    2,
+    3
+   ],
+   "divergence_text": "2/40 outputs diverge (rate 0.050)"
+  },
+  {
+   "candidate": "c16",
+   "concurrency": 16,
+   "diverged": 2,
+   "total": 40,
+   "rate": 0.05,
+   "wilson_low": 0.013820377146101098,
+   "wilson_high": 0.165041708179252,
+   "decisiveness": "PASS_DECISIVE",
+   "gate_exit": 0,
+   "gate_reasons": [],
+   "power_witness": [],
+   "flipped_indices": [
+    25,
+    33
+   ],
+   "divergence_text": "2/40 outputs diverge (rate 0.050)"
+  }
+ ]
+}

@@ -1,0 +1,27 @@
+# flag=1 生效的运行时证据（2026-11-17，由服务日志现取）
+
+## 判据
+vllm/sampling_params.py:606 的 warning_once 只在 envs.VLLM_BATCH_INVARIANT 为真时触发：
+    
+            if (
+                envs.VLLM_BATCH_INVARIANT
+                and self.temperature >= _SAMPLING_EPS
+                and self.seed is None
+            ):
+                logger.warning_once(
+                    "Random sampling without an explicit seed may not be batch "
+                    "invariant. Set seed in SamplingParams or use temperature=0."
+                )
+
+## 差分见证（命令与读数）
+$ grep -c "may not be batch invariant" results/serve-flag0.log
+0
+$ grep -c "may not be batch invariant" results/serve-flag1.log
+1
+
+## flag=1 日志里的那一条（原文）
+    189:(EngineCore pid=2157355) WARNING 11-17 08:39:40 [sampling_params.py:610] Random sampling without an explicit seed may not be batch invariant. Set seed in SamplingParams or use temperature=0.
+
+## 服务启动环境（来自 logs 的 config 段，两侧只差这一项）
+flag=0: VLLM_USE_FLASHINFER_SAMPLER=0
+flag=1: VLLM_BATCH_INVARIANT=1 VLLM_USE_FLASHINFER_SAMPLER=0

@@ -778,6 +778,15 @@ CASES = [
         "tests/test_gate_server_env.py::Testinvariance闸的server_env::test_老报告都没有该键_仍可比 "
         "tests/test_gate_server_env.py::Testinvariance闸的server_env::test_显式空声明与缺键等价",
     ),
+    (
+        "M64 build_report 读不存在的 metrics 键 → 单测全绿、真跑 KeyError",
+        [
+            ("scripts/invariance_queries40_run.py",
+             'b1["summary"]["ttft_ms"]["p50"]',
+             'b1["metrics"]["ttft_ms"]["p50"]'),
+        ],
+        "tests/test_queries40_report.py::test_build_report_只读真实报告字段",
+    ),
 ]
 
 

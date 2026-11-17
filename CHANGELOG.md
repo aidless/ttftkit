@@ -4,6 +4,17 @@
 
 ## [未发布]
 
+### 实测
+
+- **40 条独立 query 的双 flag 对照（2026-11-17）**：flag=0 两组各 2/40（0.050，Wilson [0.014,0.165]）、
+  flag=1 两组各 0/40（上界 0.088）→ 决定性 PASS；代价 TPOT 2.7×、吞吐 −58~−63%、墙钟 2.6×。
+  预注册按 8 样本外推期望 15/40，实测 2/40，未命中已登记。判决书
+  `results/invariance-2026-11-10/verdict-queries40-pair.md`。
+- **修 `build_report` 读不存在的 `metrics` 键**：夹具自造了 `run_benchmark` 从不产出的键，单测全绿、
+  真跑 `KeyError: 'metrics'`。改为 `summary`，夹具同步，新增结构断言 + 变异 M64 锁住。
+
+
+
 ### 新增
 
 - **服务端配置声明 `server_env`**：`run --server-env KEY=VALUE`（可重复）把服务端开关写进报告

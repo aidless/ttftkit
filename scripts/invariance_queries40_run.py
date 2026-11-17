@@ -168,11 +168,11 @@ def build_report(b1: dict, b2: dict, candidates: dict, policy: dict) -> tuple[di
         "cap": CAP,
         "baseline_reproducible": baseline_reproducible,
         "baseline_drift_indices": baseline_drift,
-        "baseline_ttft_ms_p50": b1["metrics"]["ttft_ms"]["p50"],
-        "baseline_ttft_ms_p99": b1["metrics"]["ttft_ms"]["p99"],
-        "baseline_tpot_ms_p50": b1["metrics"]["tpot_ms"]["p50"],
-        "baseline_ttft_ms_p50_rerun": b2["metrics"]["ttft_ms"]["p50"],
-        "baseline_ttft_ms_p99_rerun": b2["metrics"]["ttft_ms"]["p99"],
+        "baseline_ttft_ms_p50": b1["summary"]["ttft_ms"]["p50"],
+        "baseline_ttft_ms_p99": b1["summary"]["ttft_ms"]["p99"],
+        "baseline_tpot_ms_p50": b1["summary"]["tpot_ms"]["p50"],
+        "baseline_ttft_ms_p50_rerun": b2["summary"]["ttft_ms"]["p50"],
+        "baseline_ttft_ms_p99_rerun": b2["summary"]["ttft_ms"]["p99"],
         "rows": rows,
     }
     return report, rows
