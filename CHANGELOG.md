@@ -2,6 +2,16 @@
 
 格式按 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号按语义化版本。
 
+## [未发布]
+
+### 新增
+
+- **服务端配置声明 `server_env`**：`run --server-env KEY=VALUE`（可重复）把服务端开关写进报告
+  `config.server_env`；invariance / stability 的可比性键新增该字段，两侧声明不同即判不可比（退出码 `2`），
+  缺键与 `{}` 等价于「未声明」。存在的理由：`VLLM_BATCH_INVARIANT=1` 是 vLLM 的 batch 不变性开关
+  （flag=0 时 batch 改变输出属设计），没有这一项，闸会把配置差异判成实现缺陷。
+  `scripts/invariance_queries40_run.py` 支持 `SERVER_ENV=VLLM_BATCH_INVARIANT=1` 并在判决书里写明。
+
 ## [0.3.0] - 2026-11-01
 
 从「测一次」扩到「在约束下能撑多少」和「这一轮数字有多可信」。文献依据见 `docs/papers.md`。

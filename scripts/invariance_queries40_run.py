@@ -31,6 +31,7 @@ verdict-queries40{S}.json / verdict-queries40{S}.md
 """
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -95,13 +96,22 @@ assert len(PROMPTS) == N, f"prompts 需要 {N} 条，实际 {len(PROMPTS)}"
 assert len(set(PROMPTS)) == N, "prompts 有重复：分母就不是独立 query 数了"
 
 
+# 服务端配置声明：VLLM_BATCH_INVARIANT=1 时「batch 改变输出」才是缺陷，
+# =0（默认）时它是设计行为。不声明就无法归因，闸会把配置差异误判成实现缺陷。
+# 用法：SERVER_ENV=VLLM_BATCH_INVARIANT=1 python3 scripts/invariance_queries40_run.py runF
+SERVER_ENV: dict[str, str] = dict(
+    item.split("=", 1) for item in os.environ.get("SERVER_ENV", "").split(",") if "=" in item
+)
+
+
 async def one_round(concurrency: int) -> dict:
     return await run_benchmark(
         endpoint=ENDPOINT, model=MODEL, prompt=PROMPTS[0],
         prompts=PROMPTS,  # 独立样本口径：每请求自己的 prompt + seed+i
         requests=N, concurrency=concurrency, max_tokens=128,
         warmup=2, timeout_s=120.0, profile="rtx3060-vllm0.33.0-awq",
-        capture_outputs=True, temperature=0.7, seed=1234)
+        capture_outputs=True, temperature=0.7, seed=1234,
+        server_env=SERVER_ENV or None)
 
 
 def dump(obj: dict, name: str) -> None:
@@ -194,6 +204,9 @@ def main() -> int:
         "",
         f"- 口径：temperature=0.7、seed=1234、max_tokens=128、每请求独立 prompt + seed+i，"
         f"n={N} 条**不同** query。",
+        f"- 服务端配置声明：`{SERVER_ENV or '未声明'}`。"
+        "VLLM_BATCH_INVARIANT=1 时 batch 改变输出才是缺陷，=0（默认）时是设计行为"
+        "（vLLM docs/features/batch_invariance.md），读数必须带着这一行才可归因。",
         f"- 判定：stability 闸，分歧率 ≤ {CAP} 为 PASS；判词由 Wilson 95% 区间给出"
         "（上界 < cap = PASS 决定性，下界 > cap = FAIL 决定性）。",
         f"- baseline 跨跑逐字节可复现：**{'是' if baseline_reproducible else '否'}**"

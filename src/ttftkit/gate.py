@@ -57,6 +57,9 @@ HIGHER_IS_BETTER = frozenset(
 CONFIG_KEYS = ("protocol", "model", "concurrency", "max_tokens", "requests", "prompt_sha256", "profile")
 
 
+_MISSING = object()  # 缺键 ≠ 值为 None：区分「没声明」与「显式声明为空」
+
+
 class _ConfigError(Exception):
     """规则或输入无效 → 退出码 2。"""
 
@@ -140,7 +143,23 @@ def _validate_rules(rules, baseline, candidate) -> dict:
 
 # 不变性比较只要求「问的是同一个问题、用同一个模型、同一生成上限」；
 # concurrency/requests 是 batch 形态本身，允许（也应当）不同。
-INVARIANCE_CONFIG_KEYS = ("protocol", "model", "max_tokens", "prompt_sha256")
+#
+# server_env 是**服务端配置声明**（如 VLLM_BATCH_INVARIANT=1），不是压测形态：
+# 它决定「batch 改变输出」到底是预期行为还是缺陷（见 vLLM 文档
+# docs/features/batch_invariance.md：flag=0 时非确定性是设计，flag=1 才承诺不变）。
+# 不把它列进可比性键，就会把「配置不同」误判成「实现违反不变性」——方向最坏的误判。
+# 缺省 {} = 未声明；老报告没有这个键时读成 {}，仍与同为 {} 的一侧可比。
+INVARIANCE_CONFIG_KEYS = ("protocol", "model", "max_tokens", "prompt_sha256",
+                          "server_env")
+_CONFIG_KEY_DEFAULTS: dict[str, object] = {"server_env": {}}
+
+
+def _config_value(report: dict, key: str):
+    """取配置项，缺键时回落到该类键的语义缺省（只有 server_env 有缺省）。"""
+    config = report["config"]
+    if key in config:
+        return config[key]
+    return _CONFIG_KEY_DEFAULTS.get(key, _MISSING)
 
 
 def _check_invariance(candidate: dict, baseline: dict) -> dict | None:
@@ -151,7 +170,7 @@ def _check_invariance(candidate: dict, baseline: dict) -> dict | None:
     返回 PASS/FAIL 检查条目；证据问题直接抛 _ConfigError。
     """
     differing = [k for k in INVARIANCE_CONFIG_KEYS
-                 if candidate["config"][k] != baseline["config"][k]]
+                 if _config_value(candidate, k) != _config_value(baseline, k)]
     if differing:
         raise _ConfigError(
             f"measurements are not comparable for invariance: {differing} differ"
@@ -280,7 +299,7 @@ def _check_stability(candidate: dict, baseline: dict, max_rate: float) -> tuple[
     时浮点噪声被采样放大，0 分歧是错误预期——见 results/invariance 判决书）。
     """
     differing = [k for k in STABILITY_CONFIG_KEYS
-                 if candidate["config"][k] != baseline["config"][k]]
+                 if _config_value(candidate, k) != _config_value(baseline, k)]
     if differing:
         raise _ConfigError(
             f"measurements are not comparable for stability: {differing} differ"

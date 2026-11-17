@@ -68,6 +68,14 @@ ttftkit 刻意做小：**只测一个端点、只做闭环并发、只输出可�
 >
 > **stability 口径 caveat（单 prompt 复制）**：单 prompt × 单 seed 的 N 个请求是同一 query 的 N 份拷贝（实测 8 条输出全同），此时 divergence_rate 的分母是 batch 槽位数、不是独立 query——量的是「槽位对同一 fork 点的翻与不翻」。要测 query 级分歧率，用 `run_benchmark(prompts=[...])`（每请求独立 prompt，seed+i 独立种子），config 的 `prompt_sha256` 变为逐请求哈希串联，可比性检查照常生效。查询级三次独立跑（带 tag 留档，同一组 8 条 prompt）稳定读数：c=4 分歧 3/8=0.375、c=16 分歧 4/8=0.500，且 c=1 baseline 跨跑 8/8 逐字节可复现；翻转集中在固定 query（c=4 的 0/2/3、c=16 的 0/2/3/4 每跑必翻），说明是 query 自身的近并列 fork 点被 batch 放大，不是随机噪声。两种口径（槽位拷贝 vs 独立 query）量纲不同，不可相减。见 [verdict-queries-multirun.md](results/invariance-2026-11-10/verdict-queries-multirun.md)。
 >
+> **服务端配置声明 `server_env`（2026-11-17）**：`VLLM_BATCH_INVARIANT`（vLLM 文档
+> [docs/features/batch_invariance.md](https://github.com/vllm-project/vllm/blob/main/docs/features/batch_invariance.md)）
+> 直接改写「batch 改变输出」的语义——**flag=0（默认）时那是设计行为，flag=1 时才承诺
+> 输出与 batch 大小/顺序无关**。因此服务端配置必须进可比性键：`run --server-env VLLM_BATCH_INVARIANT=1`
+> 写进报告 `config.server_env`，invariance / stability 两侧声明不同即判**不可比（退出码 2）**。
+> 不声明保持缺键（=未声明），与同为未声明的一侧可比；`server_env: {}` 与缺键等价。
+> 少了这一项，闸会把「配置不同」误判成「实现违反不变性」——方向最坏的误判（编排/实验噪声被读成缺陷）。
+
 > **stability 功效见证**：n=8 时即便 0/8 分歧，Wilson 95% 上界仍有 0.324 > 上限 0.2，PASS 不是「rate ≤ 上限」的证据。gate 在 PASS 且上界超过上限时自动附一条 kind=power 见证检查（不改判决），并给出零分歧下把上界压到限内所需的样本数（0.2 档为 n≥16 条**不同** query）。反向亦然：3/8 的 Wilson 下界 0.137 ≤ 0.2，FAIL 也不必然是总体超限；见证只挂 PASS 是 fail-closed 取舍（PASS 放行部署才是危险方向）。重复跑同一组 8 条 query 不能把分母乘 3。要机械判定某个分歧率上限，先铺够独立 prompt。
 >
 > **p99_basis**：分布节点（count<20）带 `"p99_basis": "max"`——此时 p99 由末位 1–2 个样本主导，不是可分位估计，数值也未必等于 max（canonical runD 实测 8 样本 p99=123.7 而 max=123.9；另一次 p99/max≈583 把 c=4 判得比 c=16 还慢）。gate 对引用 `*.p99` 的上限规则自动附一条 basis 见证检查（不改判决），延迟结论请引 p50。

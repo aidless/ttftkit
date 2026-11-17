@@ -41,6 +41,19 @@ def _load(path: str | Path) -> dict:
     return data
 
 
+def _parse_kv(pairs) -> dict[str, str] | None:
+    """["K=V", ...] -> {"K": "V"}；格式错误 fail-closed（配置声明错了比不声明更危险）。"""
+    if not pairs:
+        return None
+    out: dict[str, str] = {}
+    for item in pairs:
+        key, sep, value = item.partition("=")
+        if not sep or not key.strip():
+            raise SystemExit(f"--server-env 需要 KEY=VALUE 形式，收到 {item!r}")
+        out[key.strip()] = value.strip()
+    return out
+
+
 def cmd_run(args) -> int:
     if not math.isfinite(args.sample_interval) or args.sample_interval <= 0:
         raise ValueError(f"--sample-interval must be finite and positive, got {args.sample_interval!r}")
@@ -64,6 +77,7 @@ def cmd_run(args) -> int:
             temperature=args.temperature,
             top_p=args.top_p,
             seed=args.seed,
+            server_env=_parse_kv(args.server_env),
         )
     )
     json_path, md_path = write(result, args.output)
@@ -199,6 +213,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="采样温度，默认 0（贪心解码，历史行为）")
     run.add_argument("--top-p", type=float, default=None,
                      help="nucleus 采样 top_p（0,1]，缺省不发送")
+    run.add_argument("--server-env", action="append", default=None, metavar="KEY=VALUE",
+                     help="服务端配置声明（可重复），如 --server-env VLLM_BATCH_INVARIANT=1。"
+                          "写进报告 config.server_env，闸据此判断两份读数是否可比；"
+                          "不声明就保持「未声明」，不会被当成默认值 0")
     run.add_argument("--seed", type=int, default=None,
                      help="随机种子（非负整数），缺省不发送")
     run.set_defaults(func=cmd_run)

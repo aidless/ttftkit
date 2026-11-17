@@ -758,6 +758,26 @@ CASES = [
         ],
         "tests/test_queries40_prompts.py::test_prompt条数等于声明的样本量",
     ),
+    (
+        "M62 server_env 退出可比性键 → 配置不同被伪装成实现违反不变性",
+        [
+            ("src/ttftkit/gate.py",
+             'INVARIANCE_CONFIG_KEYS = ("protocol", "model", "max_tokens", "prompt_sha256",\n                          "server_env")',
+             'INVARIANCE_CONFIG_KEYS = ("protocol", "model", "max_tokens", "prompt_sha256")'),
+        ],
+        "tests/test_gate_server_env.py::Testinvariance闸的server_env::test_flag不同_判不可比而不是判失败 "
+        "tests/test_gate_server_env.py::Teststability闸的server_env::test_flag不同_判不可比",
+    ),
+    (
+        "M63 缺键不回落 → 老报告（无 server_env）被判成与自身不可比",
+        [
+            ("src/ttftkit/gate.py",
+             '_CONFIG_KEY_DEFAULTS: dict[str, object] = {"server_env": {}}',
+             '_CONFIG_KEY_DEFAULTS: dict[str, object] = {}'),
+        ],
+        "tests/test_gate_server_env.py::Testinvariance闸的server_env::test_老报告都没有该键_仍可比 "
+        "tests/test_gate_server_env.py::Testinvariance闸的server_env::test_显式空声明与缺键等价",
+    ),
 ]
 
 

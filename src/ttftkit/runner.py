@@ -23,7 +23,8 @@ async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
                         max_tokens=32, warmup=0, timeout_s=60, profile='unspecified', api_key=None,
                         slo_ttft_ms=None, slo_tpot_ms=None, sampler=None,
                         sample_interval_s=0.25, capture_outputs=False,
-                        temperature=0, top_p=None, seed=None, prompts=None):
+                        temperature=0, top_p=None, seed=None, prompts=None,
+                        server_env=None):
     for key, value in [('requests', requests), ('concurrency', concurrency), ('max_tokens', max_tokens)]:
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise ValueError(f'{key} must be a positive integer')
@@ -133,6 +134,11 @@ async def run_benchmark(*, endpoint, model, prompt, requests=8, concurrency=1,
               'top_p': top_p, 'seed': seed,
               'hardware': fingerprint(hardware_block),
               'client_timing': 'asyncio-event-loop'}
+    if server_env is not None:
+        # 服务端配置声明（如 {"VLLM_BATCH_INVARIANT": "1"}）必须进报告，
+        # 否则「batch 改变输出」这件事无法归因：是缺陷还是该 flag 的预期行为。
+        # fail-closed：显式声明才写；不声明就保持缺键（未声明 ≠ 默认值）。
+        config['server_env'] = dict(sorted(server_env.items()))
     if capture_outputs:
         # invariance 闸的证据面：只收成功请求的输出文本，按请求序号排。
         # 失败请求由 error_rate/失败预算规则管，这里不掺和。
