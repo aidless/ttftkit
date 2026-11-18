@@ -734,7 +734,8 @@ CASES = [
         "M59 非法计数不校验 → k>n 静默算出假区间",
         [
             ("src/ttftkit/gate.py",
-             "    if n < 0 or k < 0 or k > n:\n        raise ValueError(f'invalid binomial counts: k={k}, n={n}')",
+             "    if n < 0 or k < 0 or k > n:\n"
+             "        raise ValueError(f'invalid binomial counts: k={k}, n={n}')",
              "    if False:\n        raise ValueError(f'invalid binomial counts: k={k}, n={n}')"),
         ],
         "tests/test_gate_wilson.py::TestWilsonInterval::test_非法计数抛ValueError",
@@ -762,7 +763,8 @@ CASES = [
         "M62 server_env 退出可比性键 → 配置不同被伪装成实现违反不变性",
         [
             ("src/ttftkit/gate.py",
-             'INVARIANCE_CONFIG_KEYS = ("protocol", "model", "max_tokens", "prompt_sha256",\n                          "server_env")',
+             'INVARIANCE_CONFIG_KEYS = ("protocol", "model", "max_tokens", "prompt_sha256",\n'
+             '                          "server_env")',
              'INVARIANCE_CONFIG_KEYS = ("protocol", "model", "max_tokens", "prompt_sha256")'),
         ],
         "tests/test_gate_server_env.py::Testinvariance闸的server_env::test_flag不同_判不可比而不是判失败 "
