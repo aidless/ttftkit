@@ -19,6 +19,8 @@ ttftkit run --endpoint http://127.0.0.1:8000/v1/chat/completions \
 ttftkit gate results/run.json --policy configs/policy.json --baseline baselines/main.json
 ```
 
+> **结论索引：见 [docs/FINDINGS.md](docs/FINDINGS.md)** —— 每条实测结论（F1–F7）+ 数字 + 证据文件 + 复现命令，含三条「不要这样引用」的坑（flag=0 的分叉不是缺陷、8 条 query 的 3/8 不是总体率、n<20 的 p99 不是分位数）。
+
 ## 为什么不用现成的
 
 | 工具 | 强项 | ttftkit 的定位 |
