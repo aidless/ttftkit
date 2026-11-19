@@ -61,7 +61,7 @@ if (envs.VLLM_BATCH_INVARIANT and self.temperature >= _SAMPLING_EPS and self.see
 export LD_LIBRARY_PATH="$(ls -d $HOME/.local/lib/python3.12/site-packages/nvidia/*/lib | tr '\n' ':')"
 
 # flag=0（默认）
-VLLM_USE_FLASHINFER_SAMPLER=0 ~/venvs/vllm/bin/vllm serve /home/liuzewen/models/Qwen3-4B-AWQ \
+VLLM_USE_FLASHINFER_SAMPLER=0 ~/venvs/vllm/bin/vllm serve "$MODEL_DIR" \
   --served-model-name Qwen3-4B-AWQ --host 127.0.0.1 --port 8123 --max-model-len 2048 \
   --gpu-memory-utilization 0.90 --enforce-eager --disable-log-requests
 SERVER_ENV=VLLM_BATCH_INVARIANT=0 PYTHONPATH=src python3 scripts/invariance_queries40_run.py runE
