@@ -9,10 +9,8 @@
 v0.2 加了两块：**GPU 显存/利用率采样**（`--gpu auto|none|command`，验收标准是「注入已知泄漏必须看得见单调上涨」）与**影子门禁**（先在 CI 里只留读数、不拦人，观察误报后再收紧）。想按 JD 一条条练，见 [`docs/labs.md`](docs/labs.md)。
 
 ```bash
-# PyPI 目前发布到 0.2.1（不含 scan 多级并发扫描子命令）；
-# 要完整功能（含 scan/gate/report）请用源码版 0.3.0：
-pip install -e .          # 或：git clone 后 pip install -e .
-# pip install ttftkit     # PyPI 0.2.1，功能落后于源码
+pip install ttftkit       # PyPI 0.4.0（含 scan / gate / report）
+pip install -e .          # 或：git clone 后装源码版
 ttftkit run --endpoint http://127.0.0.1:8000/v1/chat/completions \
     --model Qwen/Qwen2.5-7B-Instruct --requests 32 --concurrency 8 \
     --max-tokens 128 --profile rtx4090-vllm-0.6.3 --output results/run.json
