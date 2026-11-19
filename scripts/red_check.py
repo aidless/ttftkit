@@ -781,6 +781,15 @@ CASES = [
         "tests/test_gate_server_env.py::Testinvariance闸的server_env::test_显式空声明与缺键等价",
     ),
     (
+        "M65 MODEL 写死底模 → 交叉格实弹（LoRA adapter 名）打不到目标模型",
+        [
+            ("scripts/invariance_queries40_run.py",
+             'MODEL = os.environ.get("MODEL_NAME", "Qwen3-4B-AWQ")',
+             'MODEL = "Qwen3-4B-AWQ"'),
+        ],
+        "tests/test_queries40_report.py::test_model_可由环境变量覆盖",
+    ),
+    (
         "M64 build_report 读不存在的 metrics 键 → 单测全绿、真跑 KeyError",
         [
             ("scripts/invariance_queries40_run.py",

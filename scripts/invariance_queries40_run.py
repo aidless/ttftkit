@@ -42,7 +42,8 @@ from ttftkit.runner import run_benchmark
 
 OUT = Path(__file__).resolve().parent.parent / "results" / "invariance-2026-11-10"
 ENDPOINT = "http://127.0.0.1:8123/v1/chat/completions"
-MODEL = "Qwen3-4B-AWQ"
+# 交叉格实弹要换 served-model-name：底模用默认值，LoRA adapter 用其模块名（如 p1v2）。
+MODEL = os.environ.get("MODEL_NAME", "Qwen3-4B-AWQ")
 TAG = sys.argv[1] if len(sys.argv) > 1 else ""
 S = f"-{TAG}" if TAG else ""
 CAP = 0.2

@@ -121,3 +121,17 @@ def test_build_report_只读真实报告字段(q40):
     src = inspect.getsource(q40.build_report)
     assert '["metrics"]' not in src and "['metrics']" not in src, \
         "build_report 读了不存在的 metrics 键：run_benchmark 把延迟放在 summary 里"
+
+
+def test_model_可由环境变量覆盖(monkeypatch):
+    """交叉格实弹要换 served-model-name（底模 vs LoRA adapter 名），脚本必须能被环境覆盖。
+
+    否则同一套 40 条 query 只能打在底模上，F3（flag=1）× F7（LoRA 挂载）这一格永远测不到。
+    """
+    monkeypatch.setenv("MODEL_NAME", "p1v2")
+    assert _load().MODEL == "p1v2"
+
+
+def test_model_默认仍是底模(monkeypatch):
+    monkeypatch.delenv("MODEL_NAME", raising=False)
+    assert _load().MODEL == "Qwen3-4B-AWQ"

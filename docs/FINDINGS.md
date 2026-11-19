@@ -63,11 +63,20 @@ n=16 的零分歧才能把上界压到 0.2 以下；想判「约 0.2 这一档�
 `c=4` 曾在 n=8 下被判得比 `c=16` 还慢，那是 max 伪影，不是调度反常。
 证据：`src/ttftkit/metrics.py`、`verdict-queries.md`「口径」节。
 
-## F7 LoRA adapter 挂载可用，成本按 1 Hz 功率实测
+## F7 LoRA adapter 挂载可用；叠上 flag=1 后确定性保住、延迟越线
+
+F7a（单跑，flag=0）
 
 vLLM `--enable-lora --lora-modules` 挂 QLoRA adapter：p1v2 验收 8/8 成功、limits 闸 PASS
 （TTFT p99 684.4 ms、TPOT p99 177.1 ms），成本 **¥0.345 / 1M output tokens**（1 Hz `nvidia-smi` 采样、¥0.6/kWh）。
-证据：`results/invariance-2026-11-10/deploy-verdict.md`、`deploy-p1v2-bench.md`。
+
+F7b（交叉格，flag=1 + LoRA，2026-11-19 实测）：**0/40 分歧，上界 0.088 → 决定性 PASS**，
+baseline 双跑逐字节可复现；同一份报告里延迟闸 FAIL（c=4 TTFT p99 **4752.3 ms** > 2000、TPOT p99 259–261 ms > 200）。
+吞吐再降一档：c=16 75.46 → **60.89** tok/s、c=1 5.74 → 4.56。**两件事不同轴，不能合成一个「交叉格 PASS」。**
+证据：`verdict-queries40-lora.md`；复现：`MODEL_NAME=p1v2 SERVER_ENV=VLLM_BATCH_INVARIANT=1 python3 scripts/invariance_queries40_run.py <tag>`。
+（上游文档第 6 条只说 LoRA shrink 拆成 8 个固定 K 块，没给消费卡/量化/`--enforce-eager` 的读数——这一格补的就是它。）
+
+上游单跑证据：`results/invariance-2026-11-10/deploy-verdict.md`、`deploy-p1v2-bench.md`。
 
 ## 不要这样引用（三条踩过的坑）
 
